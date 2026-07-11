@@ -4,6 +4,7 @@ Settings management using Pydantic V2
 """
 
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from typing import List
 import os
 
@@ -31,12 +32,15 @@ class Settings(BaseSettings):
     JWT_EXPIRATION_HOURS: int = 24
     REFRESH_TOKEN_EXPIRATION_DAYS: int = 7
 
+    # Frontend
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        os.getenv("FRONTEND_URL", "http://localhost:3000")
+        "http://127.0.0.1:3000"
     ]
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
 
@@ -61,9 +65,11 @@ class Settings(BaseSettings):
     HASHING_ALGORITHM: str = "bcrypt"
     ACCESS_TOKEN_LIFETIME: int = 3600  # 1 hour
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="allow"  # Allow extra fields from .env
+    )
 
 
 # Create settings instance

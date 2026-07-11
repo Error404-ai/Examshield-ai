@@ -1,3 +1,179 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Design tokens ─────────────────────────────────── */
+:root {
+  --bg-base:        #0A0F1E;
+  --bg-surface:     #0F172A;
+  --bg-elevated:    #1E2A45;
+  --border-subtle:  rgba(255,255,255,0.07);
+  --border-strong:  rgba(255,255,255,0.14);
+  --text-primary:   #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-muted:     #64748B;
+  --violet:         #7C3AED;
+  --violet-light:   #A78BFA;
+  --cyan:           #06B6D4;
+  --emerald:        #10B981;
+  --amber:          #F59E0B;
+  --rose:           #F43F5E;
+}
+
+/* ── Base ───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ──────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-surface); }
+::-webkit-scrollbar-thumb {
+  background: var(--bg-elevated);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: #374B73; }
+
+/* ── Selection ─────────────────────────────────────── */
+::selection {
+  background: rgba(124,58,237,0.35);
+  color: #F1F5F9;
+}
+
+/* ── Utilities ─────────────────────────────────────── */
+@layer utilities {
+  /* Glass panels */
+  .glass {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .glass-strong {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .glass-violet {
+    background: rgba(124,58,237,0.08);
+    border: 1px solid rgba(124,58,237,0.25);
+    backdrop-filter: blur(12px);
+  }
+  .glass-cyan {
+    background: rgba(6,182,212,0.06);
+    border: 1px solid rgba(6,182,212,0.2);
+  }
+  .glass-emerald {
+    background: rgba(16,185,129,0.06);
+    border: 1px solid rgba(16,185,129,0.2);
+  }
+  .glass-rose {
+    background: rgba(244,63,94,0.07);
+    border: 1px solid rgba(244,63,94,0.25);
+  }
+  .glass-amber {
+    background: rgba(245,158,11,0.07);
+    border: 1px solid rgba(245,158,11,0.25);
+  }
+
+  /* Text gradients */
+  .text-gradient-violet {
+    background: linear-gradient(135deg, #A78BFA, #7C3AED);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .text-gradient-cyan {
+    background: linear-gradient(135deg, #67E8F9, #06B6D4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .text-gradient-multi {
+    background: linear-gradient(135deg, #A78BFA 0%, #06B6D4 50%, #10B981 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Glow rings */
+  .ring-glow-violet { box-shadow: 0 0 0 1px rgba(124,58,237,0.5), 0 0 20px rgba(124,58,237,0.25); }
+  .ring-glow-cyan   { box-shadow: 0 0 0 1px rgba(6,182,212,0.5), 0 0 20px rgba(6,182,212,0.2); }
+  .ring-glow-rose   { box-shadow: 0 0 0 1px rgba(244,63,94,0.5), 0 0 20px rgba(244,63,94,0.2); }
+  .ring-glow-emerald{ box-shadow: 0 0 0 1px rgba(16,185,129,0.5), 0 0 20px rgba(16,185,129,0.2); }
+
+  /* Animated status dot */
+  .dot-live {
+    position: relative;
+  }
+  .dot-live::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    background: rgba(16,185,129,0.3);
+    animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  /* Grid background */
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(124,58,237,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(124,58,237,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Card hover */
+  .card-hover {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(124,58,237,0.15);
+  }
+
+  /* Shine overlay */
+  .shine::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 60%);
+    pointer-events: none;
+    border-radius: inherit;
+  }
+}
+
+/* ── Range input styling for threat meter ───────────── */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.1);
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--violet);
+  box-shadow: 0 0 8px rgba(124,58,237,0.6);
+}

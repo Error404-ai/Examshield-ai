@@ -73,7 +73,7 @@ export interface Exam {
   _id: string;
   title: string;
   description: string;
-  duration: number; // minutes
+  duration: number;
   total_marks: number;
   passing_marks: number;
   is_published: boolean;
@@ -105,7 +105,6 @@ export interface Question {
   question_type: QuestionType;
   options?: string[];
   marks: number;
-  // correct_answer is NEVER sent to students
   correct_answer?: string;
   created_at?: string;
 }
@@ -156,19 +155,6 @@ export interface GradedAnswer {
 
 // ============ Proctoring ============
 
-export interface FaceDetectionResult {
-  face_detected: boolean;
-  face_id?: string;
-  confidence: number;
-  position?: { x: number; y: number; width: number; height: number };
-}
-
-export interface GazeDetectionResult {
-  looking_at_screen: boolean;
-  gaze_direction?: string;
-  confidence: number;
-}
-
 export interface BehaviorAlert {
   session_id: string;
   alert_type: string;
@@ -178,21 +164,12 @@ export interface BehaviorAlert {
   metadata?: Record<string, unknown>;
 }
 
-export interface ProctoringReport {
-  session_id: string;
-  total_frames_analyzed: number;
-  alerts_count: number;
-  critical_alerts: number;
-  suspicion_score: number;
-  recommended_action: "approve" | "review" | "reject";
-  detailed_log: BehaviorAlert[];
-}
-
-export interface FrameAnalysisPayload {
-  type: "frame_analysis";
-  face_detected: boolean;
-  looking_at_screen: boolean;
-  tab_active: boolean;
+export interface ProctoringData {
+  isConnected: boolean;
+  alerts: BehaviorAlert[];
+  tabSwitchCount: number;
+  faceDetected?: boolean;
+  lookingAtScreen?: boolean;
 }
 
 // ============ Dashboard Stats ============

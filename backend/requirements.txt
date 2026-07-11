@@ -7,6 +7,7 @@ pydantic-settings==2.1.0
 # Database
 sqlalchemy==2.0.23
 pymongo==4.6.0
+motor==3.2.0
 python-dotenv==1.0.0
 
 # Authentication & Security
@@ -44,3 +45,5 @@ boto3==1.29.7
 
 # Async support
 aiofiles==23.2.1
+
+certifi>=2023.7.22
