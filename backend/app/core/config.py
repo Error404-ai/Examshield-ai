@@ -42,7 +42,9 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000"
     ]
-    ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
+    ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1", "*.hf.space"]
+    EXTRA_ALLOWED_HOSTS: str = os.getenv("EXTRA_ALLOWED_HOSTS", "")
+    EXTRA_CORS_ORIGINS: str = os.getenv("EXTRA_CORS_ORIGINS", "")
 
     # ML Model Configuration
     FACE_RECOGNITION_THRESHOLD: float = 0.6
@@ -64,6 +66,16 @@ class Settings(BaseSettings):
     BCRYPT_ROUNDS: int = 12
     HASHING_ALGORITHM: str = "bcrypt"
     ACCESS_TOKEN_LIFETIME: int = 3600  # 1 hour
+
+    @property
+    def all_cors_origins(self) -> List[str]:
+        extra = [o.strip().rstrip("/") for o in self.EXTRA_CORS_ORIGINS.split(",") if o.strip()]
+        return self.CORS_ORIGINS + [self.FRONTEND_URL.rstrip("/")] + extra
+
+    @property
+    def all_allowed_hosts(self) -> List[str]:
+        extra = [h.strip() for h in self.EXTRA_ALLOWED_HOSTS.split(",") if h.strip()]
+        return self.ALLOWED_HOSTS + extra
 
     model_config = ConfigDict(
         env_file=".env",

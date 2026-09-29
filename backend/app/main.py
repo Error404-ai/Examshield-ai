@@ -6,6 +6,7 @@ Real-time exam proctoring with AI-powered cheating detection
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
 
@@ -40,7 +41,7 @@ app = FastAPI(
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=settings.all_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,7 +50,7 @@ app.add_middleware(
 # Trusted Host Middleware
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=settings.ALLOWED_HOSTS
+    allowed_hosts=settings.all_allowed_hosts
 )
 
 
@@ -84,13 +85,15 @@ async def root():
 # Error Handlers
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    """Global exception handler"""
     logger.error(f"Unhandled exception: {str(exc)}")
-    return {
-        "success": False,
-        "message": "Internal server error",
-        "detail": str(exc) if settings.DEBUG else None
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": "Internal server error",
+            "detail": str(exc) if settings.DEBUG else None,
+        },
+    )
 
 
 if __name__ == "__main__":
