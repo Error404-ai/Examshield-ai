@@ -3,12 +3,12 @@ Security & Authentication Utilities
 JWT tokens, password hashing, and access control
 """
 
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Dict, Any, List
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthCredentials
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import logging
 
 from app.core.config import settings
@@ -33,7 +33,11 @@ class SecurityUtils:
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
         """Verify password against hash"""
-        return pwd_context.verify(plain_password, hashed_password)
+        try:
+            return pwd_context.verify(plain_password, hashed_password)
+        except Exception as e:
+            logger.error(f"Password verification error: {str(e)}")
+            return False
 
     @staticmethod
     def create_access_token(
@@ -42,23 +46,22 @@ class SecurityUtils:
     ) -> str:
         """Create JWT access token"""
         to_encode = data.copy()
-        
+
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(timezone.utc) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(
+            expire = datetime.now(timezone.utc) + timedelta(
                 hours=settings.JWT_EXPIRATION_HOURS
             )
 
         to_encode.update({"exp": expire})
-        
+
         try:
-            encoded_jwt = jwt.encode(
+            return jwt.encode(
                 to_encode,
                 settings.JWT_SECRET_KEY,
                 algorithm=settings.JWT_ALGORITHM
             )
-            return encoded_jwt
         except Exception as e:
             logger.error(f"Token creation error: {str(e)}")
             raise
@@ -76,47 +79,69 @@ class SecurityUtils:
     def verify_token(token: str) -> Optional[Dict[str, Any]]:
         """Verify JWT token and return payload"""
         try:
-            payload = jwt.decode(
+            return jwt.decode(
                 token,
                 settings.JWT_SECRET_KEY,
                 algorithms=[settings.JWT_ALGORITHM]
             )
-            return payload
         except JWTError as e:
-            logger.error(f"Token verification error: {str(e)}")
+            logger.warning(f"Token verification error: {str(e)}")
             return None
 
     @staticmethod
-    async def get_current_user(credentials: HTTPAuthCredentials = Depends(security)) -> Dict[str, Any]:
+    async def get_current_user(
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+    ) -> Dict[str, Any]:
         """Dependency to get current authenticated user"""
-        token = credentials.credentials
-        
-        payload = SecurityUtils.verify_token(token)
+        payload = SecurityUtils.verify_token(credentials.credentials)
         if not payload:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
-        user_id: str = payload.get("sub")
+
+        # Refresh tokens must not be accepted as access tokens
+        if payload.get("type") == "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token cannot be used for this request",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        user_id: Optional[str] = payload.get("sub")
         if user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token does not contain user ID"
+                detail="Token does not contain user ID",
+                headers={"WWW-Authenticate": "Bearer"},
             )
 
-        return {"user_id": user_id, "payload": payload}
+        return {
+            "user_id": user_id,
+            "email": payload.get("email"),
+            "role": payload.get("role"),
+            "payload": payload,
+        }
 
     @staticmethod
-    def verify_role(required_roles: list):
+    def verify_role(required_roles: List[str]):
         """Dependency to verify user role"""
-        async def role_checker(current_user: Dict = Depends(SecurityUtils.get_current_user)):
-            user_role = current_user.get("payload", {}).get("role")
-            if user_role not in required_roles:
+        async def role_checker(
+            current_user: Dict[str, Any] = Depends(SecurityUtils.get_current_user),
+        ) -> Dict[str, Any]:
+            if current_user.get("role") not in required_roles:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Insufficient permissions. Required role: {', '.join(required_roles)}"
+                    detail=f"Insufficient permissions. Required role: {', '.join(required_roles)}",
                 )
             return current_user
         return role_checker
+
+
+# Convenience aliases so routes can import these directly
+get_current_user = SecurityUtils.get_current_user
+
+
+def require_role(*roles: str):
+    return SecurityUtils.verify_role(list(roles))

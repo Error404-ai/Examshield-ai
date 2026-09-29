@@ -3,40 +3,19 @@ ExamShield AI - Authentication Routes
 User registration, login, and token management
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
-from datetime import datetime, timedelta
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from app.core.database import get_db
-from app.models.schemas import UserCreate, LoginRequest, TokenResponse, UserResponse
+from datetime import datetime, timezone
 import logging
-import os
+
+from bson import ObjectId
+from bson.errors import InvalidId
+from fastapi import APIRouter, HTTPException, Depends, status
+
+from app.core.database import get_db
+from app.core.security import SecurityUtils, get_current_user
+from app.models.schemas import UserCreate, LoginRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# JWT config
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
-
-
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
-
-
-def create_access_token(data: dict) -> str:
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 # ─── Register ────────────────────────────────────────────────────────────────
@@ -46,24 +25,25 @@ async def register(user_data: UserCreate, db=Depends(get_db)):
     """Register a new user"""
     try:
         users_col = db["users"]
+        email = user_data.email.strip().lower()
 
         # Check duplicate email
-        existing = await users_col.find_one({"email": user_data.email})
+        existing = await users_col.find_one({"email": email})
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="User already exists with this email"
             )
 
-        # Build user document
+        now = datetime.now(timezone.utc)
         user_doc = {
             "name": user_data.name,
-            "email": user_data.email,
-            "password_hash": hash_password(user_data.password),
+            "email": email,
+            "password_hash": SecurityUtils.hash_password(user_data.password),
             "role": user_data.role.value,
             "is_active": True,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": now,
+            "updated_at": now,
         }
 
         result = await users_col.insert_one(user_doc)
@@ -91,16 +71,25 @@ async def login(credentials: LoginRequest, db=Depends(get_db)):
     """Login and get access token"""
     try:
         users_col = db["users"]
+        email = credentials.email.strip().lower()
 
-        user = await users_col.find_one({"email": credentials.email})
+        user = await users_col.find_one({"email": email})
 
-        if not user or not verify_password(credentials.password, user["password_hash"]):
+        if not user or not SecurityUtils.verify_password(
+            credentials.password, user["password_hash"]
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"
             )
 
-        token = create_access_token({
+        if not user.get("is_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is disabled"
+            )
+
+        token = SecurityUtils.create_access_token({
             "sub": str(user["_id"]),
             "email": user["email"],
             "role": user["role"]
@@ -130,10 +119,31 @@ async def login(credentials: LoginRequest, db=Depends(get_db)):
 # ─── Get Current User ────────────────────────────────────────────────────────
 
 @router.get("/me", response_model=dict)
-async def get_current_user(db=Depends(get_db)):
-    """Get current authenticated user — JWT verification placeholder"""
-    # TODO: Extract user from JWT in Authorization header
-    return {"message": "Implement JWT middleware next"}
+async def read_current_user(
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Return the authenticated user's profile"""
+    try:
+        user = await db["users"].find_one({"_id": ObjectId(current_user["user_id"])})
+    except InvalidId:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user ID in token"
+        )
+
+    if not user or not user.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    return {
+        "id": str(user["_id"]),
+        "name": user.get("name"),
+        "email": user.get("email"),
+        "role": user.get("role"),
+    }
 
 
 # ─── Logout ──────────────────────────────────────────────────────────────────
