@@ -15,6 +15,7 @@ import { LoginPage } from "./pages/Auth/LoginPage";
 import { RegisterPage } from "./pages/Auth/RegisterPage";
 import { StudentDashboard } from "./pages/Dashboard/StudentDashboard";
 import { AdminDashboard } from "./pages/Dashboard/AdminDashboard";
+import { CreateExamPage } from "./pages/Admin/CreateExamPage";
 import { ExamPage } from "./pages/Exam/ExamPage";
 import { ResultPage } from "./pages/Exam/ResultPage";
 
@@ -79,6 +80,14 @@ const App: React.FC = () => {
               element={
                 <ProtectedRoute user={user} isLoading={isLoading} requiredRole={UserRole.ADMIN}>
                   <AdminDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/exams/new"
+              element={
+                <ProtectedRoute user={user} isLoading={isLoading} requiredRole={UserRole.ADMIN}>
+                  <CreateExamPage />
                 </ProtectedRoute>
               }
             />

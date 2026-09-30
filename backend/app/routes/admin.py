@@ -1,312 +1,238 @@
 """
 ExamShield AI - Admin Routes
-Exam creation, management, and analytics
+Exam creation, question management, publishing and results
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel
-from typing import List, Optional
 import logging
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
+
+from bson import ObjectId
+from bson.errors import InvalidId
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+
 from app.core.database import get_db
+from app.core.security import require_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-
-# Pydantic Models
-class Question(BaseModel):
-    """Question model"""
-    question_text: str
-    question_type: str
-    options: Optional[List[str]] = None
-    correct_answer: str
-    marks: int = 1
+# One shared dependency instance: only users whose JWT role is "admin" get in
+admin_only = require_role("admin")
 
 
-class CreateExamRequest(BaseModel):
-    """Create exam request"""
-    title: str
-    description: str
-    instructions: str
-    duration_minutes: int
-    passing_percentage: float = 40.0
-    questions: List[Question]
+# ─── Schemas (match frontend/src/types) ──────────────────────────────────────
+
+class ExamCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = ""
+    instructions: str = ""
+    duration: int = Field(..., gt=0, le=300)  # minutes
+    total_marks: int = Field(0, ge=0)
+    passing_marks: int = Field(0, ge=0)
 
 
-class UpdateExamRequest(BaseModel):
-    """Update exam request"""
-    title: Optional[str] = None
+class ExamUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = None
     instructions: Optional[str] = None
-    duration_minutes: Optional[int] = None
-    passing_percentage: Optional[float] = None
-    questions: Optional[List[Question]] = None
+    duration: Optional[int] = Field(None, gt=0, le=300)
+    total_marks: Optional[int] = Field(None, ge=0)
+    passing_marks: Optional[int] = Field(None, ge=0)
+    is_published: Optional[bool] = None
 
 
-class ExamStatsResponse(BaseModel):
-    """Exam statistics response"""
+class QuestionCreate(BaseModel):
     exam_id: str
-    title: str
-    total_attempts: int
-    average_score: float
-    pass_rate: float
-    total_students: int
+    question_text: str = Field(..., min_length=1)
+    question_type: str = "mcq"
+    options: Optional[List[str]] = None
+    correct_answer: str
+    marks: int = Field(1, gt=0)
 
 
-# Routes
-@router.post("/exams", response_model=dict)
-async def create_exam(exam_data: CreateExamRequest, db = Depends(get_db)):
-    """
-    Create a new exam
-    
-    - **title**: Exam title
-    - **description**: Exam description
-    - **instructions**: Exam instructions
-    - **duration_minutes**: Duration in minutes
-    - **passing_percentage**: Passing score percentage (0-100)
-    - **questions**: List of questions with answers
-    """
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _oid(value: str, label: str = "ID") -> ObjectId:
     try:
-        # TODO: Get authenticated admin_id from JWT
-        admin_id = "placeholder_admin_id"
-        
-        exams_col = db["exams"]
-        
-        # Prepare exam document
-        exam_doc = {
-            "title": exam_data.title,
-            "description": exam_data.description,
-            "instructions": exam_data.instructions,
-            "duration_minutes": exam_data.duration_minutes,
-            "passing_percentage": exam_data.passing_percentage,
-            "created_by": admin_id,
-            "created_at": None,
-            "updated_at": None,
-            "is_active": True,
-            "questions": [q.dict() for q in exam_data.questions],
-            "total_marks": sum(q.marks for q in exam_data.questions)
-        }
-        
-        result = await exams_col.insert_one(exam_doc)
-        
-        return {
-            "success": True,
-            "message": "Exam created successfully",
-            "exam_id": str(result.inserted_id)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error creating exam: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create exam"
-        )
+        return ObjectId(value)
+    except (InvalidId, TypeError):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid {label}")
+
+
+def _clean(doc: Dict) -> Dict:
+    """Turn top-level ObjectIds into strings so the doc is JSON-safe"""
+    return {k: (str(v) if isinstance(v, ObjectId) else v) for k, v in doc.items()}
+
+
+async def _get_owned_exam(db, exam_id: str, admin_id: str) -> Dict:
+    exam = await db["exams"].find_one(
+        {"_id": _oid(exam_id, "exam ID"), "created_by": admin_id}
+    )
+    if not exam:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Exam not found")
+    return exam
+
+
+# ─── Dashboard ───────────────────────────────────────────────────────────────
+
+@router.get("/dashboard")
+async def get_admin_dashboard(admin: dict = Depends(admin_only), db=Depends(get_db)):
+    admin_id = admin["user_id"]
+    return {
+        "success": True,
+        "stats": {
+            "total_exams": await db["exams"].count_documents({"created_by": admin_id}),
+            "published_exams": await db["exams"].count_documents(
+                {"created_by": admin_id, "is_published": True}
+            ),
+            "total_students": await db["users"].count_documents({"role": "student"}),
+            "total_sessions": await db["exam_sessions"].count_documents({}),
+        },
+    }
+
+
+# ─── Exams ───────────────────────────────────────────────────────────────────
+
+@router.post("/exams")
+async def create_exam(
+    data: ExamCreate, admin: dict = Depends(admin_only), db=Depends(get_db)
+):
+    if data.passing_marks > data.total_marks and data.total_marks > 0:
+        raise HTTPException(400, "Passing marks cannot exceed total marks")
+
+    doc = {
+        **data.model_dump(),
+        "created_by": admin["user_id"],
+        "is_published": False,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    result = await db["exams"].insert_one(doc)
+    return {"success": True, "exam_id": str(result.inserted_id)}
 
 
 @router.get("/exams")
-async def list_exams(db = Depends(get_db)):
-    """
-    Get all exams created by admin
-    """
-    try:
-        # TODO: Get authenticated admin_id from JWT
-        admin_id = "placeholder_admin_id"
-        
-        exams_col = db["exams"]
-        exams = await exams_col.find({"created_by": admin_id}).to_list(length=None)
-        
-        return {
-            "success": True,
-            "count": len(exams),
-            "exams": [
-                {
-                    "id": str(exam["_id"]),
-                    "title": exam["title"],
-                    "description": exam["description"],
-                    "duration_minutes": exam["duration_minutes"],
-                    "total_questions": len(exam.get("questions", [])),
-                    "is_active": exam.get("is_active", True),
-                    "created_at": str(exam.get("created_at", ""))
-                }
-                for exam in exams
-            ]
-        }
-        
-    except Exception as e:
-        logger.error(f"Error fetching exams: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch exams"
-        )
+async def list_exams(admin: dict = Depends(admin_only), db=Depends(get_db)):
+    exams = (
+        await db["exams"]
+        .find({"created_by": admin["user_id"]})
+        .sort("created_at", -1)
+        .to_list(length=None)
+    )
+    return {"success": True, "exams": [_clean(e) for e in exams]}
+
+
+@router.get("/exams/{exam_id}")
+async def get_exam(exam_id: str, admin: dict = Depends(admin_only), db=Depends(get_db)):
+    exam = await _get_owned_exam(db, exam_id, admin["user_id"])
+    questions = await db["questions"].find({"exam_id": exam_id}).to_list(length=None)
+    return {
+        "success": True,
+        "exam": _clean(exam),
+        "questions": [_clean(q) for q in questions],
+    }
 
 
 @router.put("/exams/{exam_id}")
-async def update_exam(exam_id: str, exam_data: UpdateExamRequest, db = Depends(get_db)):
-    """
-    Update exam details
-    
-    - **exam_id**: MongoDB ObjectId of the exam
-    """
-    try:
-        from bson.objectid import ObjectId
-        
-        exams_col = db["exams"]
-        
-        # Prepare update data
-        update_data = {}
-        for key, value in exam_data.dict(exclude_unset=True).items():
-            if value is not None:
-                if key == "questions":
-                    update_data[key] = [q.dict() for q in value]
-                else:
-                    update_data[key] = value
-        
-        result = await exams_col.update_one(
-            {"_id": ObjectId(exam_id)},
-            {"$set": update_data}
-        )
-        
-        if result.matched_count == 0:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Exam not found"
-            )
-        
-        return {
-            "success": True,
-            "message": "Exam updated successfully",
-            "modified_count": result.modified_count
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating exam: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update exam"
-        )
+async def update_exam(
+    exam_id: str,
+    data: ExamUpdate,
+    admin: dict = Depends(admin_only),
+    db=Depends(get_db),
+):
+    await _get_owned_exam(db, exam_id, admin["user_id"])
+
+    fields = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
+    fields["updated_at"] = _now()
+    await db["exams"].update_one({"_id": _oid(exam_id)}, {"$set": fields})
+    return {"success": True, "message": "Exam updated"}
+
+
+@router.post("/exams/{exam_id}/publish")
+async def publish_exam(exam_id: str, admin: dict = Depends(admin_only), db=Depends(get_db)):
+    await _get_owned_exam(db, exam_id, admin["user_id"])
+
+    if await db["questions"].count_documents({"exam_id": exam_id}) == 0:
+        raise HTTPException(400, "Add at least one question before publishing")
+
+    await db["exams"].update_one(
+        {"_id": _oid(exam_id)},
+        {"$set": {"is_published": True, "updated_at": _now()}},
+    )
+    return {"success": True, "message": "Exam published"}
 
 
 @router.delete("/exams/{exam_id}")
-async def delete_exam(exam_id: str, db = Depends(get_db)):
-    """
-    Delete an exam
-    
-    - **exam_id**: MongoDB ObjectId of the exam
-    """
-    try:
-        from bson.objectid import ObjectId
-        
-        exams_col = db["exams"]
-        
-        result = await exams_col.delete_one({"_id": ObjectId(exam_id)})
-        
-        if result.deleted_count == 0:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Exam not found"
-            )
-        
-        return {
-            "success": True,
-            "message": "Exam deleted successfully"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting exam: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete exam"
-        )
+async def delete_exam(exam_id: str, admin: dict = Depends(admin_only), db=Depends(get_db)):
+    await _get_owned_exam(db, exam_id, admin["user_id"])
+    await db["exams"].delete_one({"_id": _oid(exam_id)})
+    await db["questions"].delete_many({"exam_id": exam_id})
+    return {"success": True, "message": "Exam deleted"}
 
+
+# ─── Questions ───────────────────────────────────────────────────────────────
+
+@router.post("/questions")
+async def add_question(
+    data: QuestionCreate, admin: dict = Depends(admin_only), db=Depends(get_db)
+):
+    await _get_owned_exam(db, data.exam_id, admin["user_id"])
+
+    if data.question_type in ("mcq", "true_false"):
+        if not data.options or len(data.options) < 2:
+            raise HTTPException(400, "Choice questions need at least 2 options")
+        if data.correct_answer not in data.options:
+            raise HTTPException(400, "Correct answer must be one of the options")
+
+    doc = {**data.model_dump(), "created_at": _now()}
+    result = await db["questions"].insert_one(doc)
+    return {"success": True, "question_id": str(result.inserted_id)}
+
+
+@router.delete("/questions/{question_id}")
+async def delete_question(
+    question_id: str, admin: dict = Depends(admin_only), db=Depends(get_db)
+):
+    question = await db["questions"].find_one({"_id": _oid(question_id, "question ID")})
+    if not question:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Question not found")
+
+    await _get_owned_exam(db, question["exam_id"], admin["user_id"])
+    await db["questions"].delete_one({"_id": question["_id"]})
+    return {"success": True, "message": "Question deleted"}
+
+
+# ─── Results ─────────────────────────────────────────────────────────────────
 
 @router.get("/exams/{exam_id}/results")
-async def get_exam_results(exam_id: str, db = Depends(get_db)):
-    """
-    Get all results for a specific exam
-    
-    - **exam_id**: MongoDB ObjectId of the exam
-    """
-    try:
-        results_col = db["results"]
-        results = await results_col.find({"exam_id": exam_id}).to_list(length=None)
-        
-        # Calculate statistics
-        total_attempts = len(results)
-        if total_attempts > 0:
-            avg_score = sum(r["score_percentage"] for r in results) / total_attempts
-            passed = sum(1 for r in results if r["passed"])
-            pass_rate = (passed / total_attempts) * 100
-        else:
-            avg_score = 0
-            pass_rate = 0
-        
-        return {
-            "success": True,
-            "exam_id": exam_id,
-            "total_attempts": total_attempts,
-            "average_score": round(avg_score, 2),
-            "pass_rate": round(pass_rate, 2),
-            "results": results
-        }
-        
-    except Exception as e:
-        logger.error(f"Error fetching exam results: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch results"
-        )
+async def get_exam_results(
+    exam_id: str, admin: dict = Depends(admin_only), db=Depends(get_db)
+):
+    exam = await _get_owned_exam(db, exam_id, admin["user_id"])
+    results = await db["results"].find({"exam_id": exam_id}).to_list(length=None)
 
+    cleaned = []
+    for r in results:
+        r = _clean(r)
+        r["percentage"] = r.get("percentage", r.get("score_percentage", 0))
+        cleaned.append(r)
 
-@router.get("/exams/{exam_id}/analytics")
-async def get_exam_analytics(exam_id: str, db = Depends(get_db)):
-    """
-    Get detailed analytics for an exam
-    
-    Includes:
-    - Question difficulty
-    - Most answered questions
-    - Common wrong answers
-    - Proctoring violations
-    """
-    try:
-        return {
-            "exam_id": exam_id,
-            "message": "Analytics endpoint",
-            "todo": "Implement analytics generation"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error fetching analytics: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch analytics"
-        )
+    total = len(cleaned)
+    passed = sum(1 for r in cleaned if r.get("passed"))
+    avg = sum(r["percentage"] for r in cleaned) / total if total else 0
 
-
-@router.get("/dashboard")
-async def get_admin_dashboard(db = Depends(get_db)):
-    """
-    Get admin dashboard statistics
-    
-    Shows overview of:
-    - Total exams
-    - Total students
-    - Average pass rate
-    - Recent results
-    """
-    try:
-        return {
-            "message": "Admin dashboard endpoint",
-            "todo": "Implement dashboard statistics"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error fetching dashboard: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch dashboard"
-        )
+    return {
+        "success": True,
+        "exam_title": exam.get("title", ""),
+        "total_attempts": total,
+        "passed": passed,
+        "failed": total - passed,
+        "average_score": round(avg, 2),
+        "results": cleaned,
+    }

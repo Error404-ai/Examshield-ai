@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Exams a student is allowed to see (adjust once admin.py's exam fields are confirmed)
-PUBLISHED_FILTER = {"$or": [{"is_published": True}, {"is_active": True}]}
+PUBLISHED_FILTER = {"is_published": True}
 
 
 # Pydantic Models
@@ -161,17 +161,17 @@ async def get_exam_details(
     if not exam:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Exam not found")
 
+    cursor = db["questions"].find({"exam_id": exam_id})
     questions = [
         {
-            "_id": str(q.get("_id", "")),
+            "_id": str(q["_id"]),
             "exam_id": exam_id,
             "question_text": q.get("question_text", ""),
             "question_type": q.get("question_type", "mcq"),
             "options": q.get("options"),
             "marks": q.get("marks", 1),
-            # correct_answer is deliberately left out
         }
-        for q in exam.get("questions", [])
+        async for q in cursor
     ]
 
     return {
