@@ -41,7 +41,8 @@ app = FastAPI(
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.all_cors_origins,
+    allow_origins=["http://localhost:5173", "https://examshield-ai-chi.vercel.app"],
+    allow_origin_regex=r"https://examshield-.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
