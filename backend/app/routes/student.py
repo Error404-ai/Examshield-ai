@@ -1,323 +1,215 @@
 """
 ExamShield AI - Student Routes
-Exam access, submission, and results endpoints
+Exam access, sessions, submission and results
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel
-from typing import List
+from datetime import datetime, timedelta
 import logging
+
+from fastapi import APIRouter, HTTPException, Depends, status
+from pymongo.errors import DuplicateKeyError
+
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import require_role
+from app.core.utils import to_json, parse_object_id
+from app.models.schemas import SessionStatus, SessionSubmit
+from app.services.exam_service import ExamService
+from app.services.result_service import ResultService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Students only see published exams
-PUBLISHED_FILTER = {"is_published": True}
+student_only = Depends(require_role("student"))
+
+# Timer auto-submit and network lag can land slightly after expiry
+SUBMIT_GRACE_SECONDS = 60
 
 
-# Pydantic Models
-class ExamDetailResponse(BaseModel):
-    """Detailed exam response"""
-    id: str
-    title: str
-    description: str
-    instructions: str
-    duration_minutes: int
-    total_questions: int
-    questions: List[dict]
+def _remaining_seconds(session: dict) -> int:
+    return max(0, int((session["expires_at"] - datetime.utcnow()).total_seconds()))
 
 
-class StartExamRequest(BaseModel):
-    """Start exam request"""
-    exam_id: str
+# ─── Dashboard ───────────────────────────────────────────────────────────────
 
-
-class ExamSessionResponse(BaseModel):
-    """Exam session response"""
-    session_id: str
-    exam_id: str
-    student_id: str
-    start_time: str
-    end_time: str
-    duration_minutes: int
-
-
-class SubmitAnswerRequest(BaseModel):
-    """Submit answer request"""
-    session_id: str
-    question_id: str
-    answer: str
-
-
-class ExamResultResponse(BaseModel):
-    """Exam result response"""
-    session_id: str
-    student_id: str
-    exam_id: str
-    total_questions: int
-    correct_answers: int
-    score_percentage: float
-    passed: bool
-    submitted_at: str
-    proctoring_alerts: List[dict]
-
-
-# Routes
 @router.get("/dashboard")
-async def student_dashboard(
-    current_user: dict = Depends(get_current_user),
-    db=Depends(get_db),
-):
-    """Dashboard counts for the logged-in student"""
-    try:
-        student_id = current_user["user_id"]
+async def student_dashboard(current_user: dict = student_only, db=Depends(get_db)):
+    student_id = current_user["user_id"]
+    submitted = {"student_id": student_id, "status": SessionStatus.SUBMITTED.value}
 
-        available = await db["exams"].count_documents(PUBLISHED_FILTER)
-        attempted = await db["results"].count_documents({"student_id": student_id})
-        passed = await db["results"].count_documents(
-            {"student_id": student_id, "passed": True}
-        )
-
-        return {
-            "success": True,
-            "stats": {
-                "available_exams": available,
-                "attempted": attempted,
-                "passed": passed,
-                "failed": attempted - passed,
-            },
-        }
-    except Exception as e:
-        logger.error(f"Error building student dashboard: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to load dashboard"
-        )
-
-
-@router.get("/exams")
-async def list_available_exams(
-    current_user: dict = Depends(get_current_user),
-    db=Depends(get_db),
-):
-    """
-    Get list of available exams for the logged-in student
-    """
-    try:
-        student_id = current_user["user_id"]
-
-        exams = await db["exams"].find(PUBLISHED_FILTER).to_list(length=None)
-
-        attempted_docs = await db["results"].find(
-            {"student_id": student_id}, {"exam_id": 1}
-        ).to_list(length=None)
-        attempted_ids = {str(r.get("exam_id")) for r in attempted_docs}
-
-        return {
-            "success": True,
-            "exams": [
-                {
-                    "_id": str(exam["_id"]),
-                    "title": exam.get("title", ""),
-                    "description": exam.get("description", ""),
-                    "duration": exam.get("duration", exam.get("duration_minutes", 0)),
-                    "total_marks": exam.get("total_marks", 0),
-                    "passing_marks": exam.get("passing_marks", 0),
-                    "is_published": exam.get("is_published", False),
-                    "created_by": str(exam.get("created_by", "")),
-                    "created_at": str(exam.get("created_at", "")),
-                    "updated_at": str(exam.get("updated_at", "")),
-                    "attempted": str(exam["_id"]) in attempted_ids,
-                }
-                for exam in exams
-            ],
-        }
-
-    except Exception as e:
-        logger.error(f"Error fetching exams: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch exams"
-        )
-
-
-@router.get("/exams/{exam_id}")
-async def get_exam_details(
-    exam_id: str,
-    current_user: dict = Depends(get_current_user),
-    db=Depends(get_db),
-):
-    """Exam details plus questions, without the correct answers"""
-    from bson.objectid import ObjectId
-    from bson.errors import InvalidId
-
-    try:
-        exam = await db["exams"].find_one({"_id": ObjectId(exam_id), "is_published": True})
-    except InvalidId:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid exam ID")
-
-    if not exam:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Exam not found")
-
-    # Questions live in their own collection (created via POST /admin/questions)
-    cursor = db["questions"].find({"exam_id": exam_id})
-    questions = [
-        {
-            "_id": str(q["_id"]),
-            "exam_id": exam_id,
-            "question_text": q.get("question_text", ""),
-            "question_type": q.get("question_type", "mcq"),
-            "options": q.get("options"),
-            "marks": q.get("marks", 1),
-            # correct_answer is deliberately left out
-        }
-        async for q in cursor
-    ]
+    available = await db["exams"].count_documents({"is_published": True})
+    attempted = await db["sessions"].count_documents(submitted)
+    passed = await db["sessions"].count_documents({**submitted, "passed": True})
 
     return {
         "success": True,
-        "exam": {
-            "_id": str(exam["_id"]),
-            "title": exam.get("title", ""),
-            "description": exam.get("description", ""),
-            "instructions": exam.get("instructions", ""),
-            "duration": exam.get("duration", exam.get("duration_minutes", 0)),
-            "total_marks": exam.get("total_marks", 0),
-            "passing_marks": exam.get("passing_marks", 0),
-            "is_published": True,
+        "stats": {
+            "available_exams": available,
+            "attempted": attempted,
+            "passed": passed,
+            "failed": attempted - passed,
         },
-        "questions": questions,
     }
 
 
-@router.post("/exams/{exam_id}/start", response_model=ExamSessionResponse)
-async def start_exam(exam_id: str, db=Depends(get_db)):
-    """
-    Start an exam session (still a placeholder - rebuilt in the exam-flow step)
-    """
-    try:
-        # TODO: Get authenticated student_id from JWT
-        student_id = "placeholder_student_id"
+# ─── Exams ───────────────────────────────────────────────────────────────────
 
-        sessions_col = db["exam_sessions"]
+@router.get("/exams")
+async def list_available_exams(current_user: dict = student_only, db=Depends(get_db)):
+    student_id = current_user["user_id"]
 
-        session_doc = {
-            "exam_id": exam_id,
+    exams = await db["exams"].find({"is_published": True}).sort("created_at", -1).to_list(length=None)
+
+    session_status = {}
+    async for s in db["sessions"].find({"student_id": student_id}, {"exam_id": 1, "status": 1}):
+        session_status[s["exam_id"]] = s["status"]
+
+    out = []
+    for exam in exams:
+        eid = str(exam["_id"])
+        out.append({
+            **exam,
+            "attempted": eid in session_status,
+            "session_status": session_status.get(eid),
+        })
+    return {"success": True, "exams": to_json(out)}
+
+
+@router.get("/exams/{exam_id}")
+async def get_exam_details(exam_id: str, current_user: dict = student_only, db=Depends(get_db)):
+    """Exam plus questions, without correct answers"""
+    oid = parse_object_id(exam_id, "exam ID")
+    exam = await db["exams"].find_one({"_id": oid, "is_published": True})
+    if not exam:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Exam not found")
+
+    questions = await ExamService(db).get_questions(exam_id, strip_answers=True)
+    return {"success": True, "exam": to_json(exam), "questions": to_json(questions)}
+
+
+# ─── Start / resume ──────────────────────────────────────────────────────────
+
+@router.post("/exams/{exam_id}/start")
+async def start_exam(exam_id: str, current_user: dict = student_only, db=Depends(get_db)):
+    """
+    Start an exam session, or resume an ongoing one.
+    One attempt per student per exam.
+    """
+    student_id = current_user["user_id"]
+    oid = parse_object_id(exam_id, "exam ID")
+
+    exam = await db["exams"].find_one({"_id": oid, "is_published": True})
+    if not exam:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Exam not found")
+
+    session = await db["sessions"].find_one({"student_id": student_id, "exam_id": exam_id})
+
+    if session is None:
+        now = datetime.utcnow()
+        doc = {
             "student_id": student_id,
-            "start_time": None,
-            "end_time": None,
-            "status": "active",
+            "exam_id": exam_id,
+            "status": SessionStatus.ONGOING.value,
+            "started_at": now,
+            "expires_at": now + timedelta(minutes=exam.get("duration", 0)),
+            "submitted_at": None,
+            "score": 0,
+            "total_marks": exam.get("total_marks", 0),
+            "percentage": 0,
+            "passed": False,
             "answers": [],
-            "proctoring_alerts": []
+            "proctoring_alerts": [],
         }
+        try:
+            result = await db["sessions"].insert_one(doc)
+            doc["_id"] = result.inserted_id
+            session = doc
+        except DuplicateKeyError:  # double-click / two tabs
+            session = await db["sessions"].find_one({"student_id": student_id, "exam_id": exam_id})
 
-        result = await sessions_col.insert_one(session_doc)
+    if session["status"] != SessionStatus.ONGOING.value:
+        raise HTTPException(status.HTTP_409_CONFLICT, "You have already attempted this exam")
 
-        return {
-            "session_id": str(result.inserted_id),
-            "exam_id": exam_id,
-            "student_id": student_id,
-            "start_time": str(session_doc["start_time"]),
-            "end_time": str(session_doc["end_time"]),
-            "duration_minutes": 60
-        }
-
-    except Exception as e:
-        logger.error(f"Error starting exam: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to start exam"
+    if _remaining_seconds(session) == 0 and datetime.utcnow() > session["expires_at"] + timedelta(seconds=SUBMIT_GRACE_SECONDS):
+        await db["sessions"].update_one(
+            {"_id": session["_id"]},
+            {"$set": {"status": SessionStatus.EXPIRED.value}},
         )
+        raise HTTPException(status.HTTP_409_CONFLICT, "Time for this exam has run out")
+
+    return {
+        "success": True,
+        "session_id": str(session["_id"]),
+        "duration_minutes": exam.get("duration", 0),
+        "started_at": to_json(session["started_at"]),
+        "remaining_seconds": _remaining_seconds(session),
+    }
 
 
-@router.post("/exams/{exam_id}/submit")
-async def submit_answers(exam_id: str, answers: List[SubmitAnswerRequest], db=Depends(get_db)):
-    """
-    Submit exam answers (still a placeholder - rebuilt in the exam-flow step)
-    """
-    try:
-        return {
-            "success": True,
-            "message": "Answers submitted successfully",
-            "todo": "Implement answer submission and scoring"
-        }
+# ─── Submit ──────────────────────────────────────────────────────────────────
 
-    except Exception as e:
-        logger.error(f"Error submitting answers: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to submit answers"
+@router.post("/sessions/submit")
+async def submit_exam(payload: SessionSubmit, current_user: dict = student_only, db=Depends(get_db)):
+    student_id = current_user["user_id"]
+    sid = parse_object_id(payload.session_id, "session ID")
+
+    session = await db["sessions"].find_one({"_id": sid, "student_id": student_id})
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    if session["status"] != SessionStatus.ONGOING.value:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This exam was already submitted")
+
+    now = datetime.utcnow()
+    if now > session["expires_at"] + timedelta(seconds=SUBMIT_GRACE_SECONDS):
+        await db["sessions"].update_one(
+            {"_id": sid}, {"$set": {"status": SessionStatus.EXPIRED.value}}
         )
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Time is up, this session has expired")
+
+    graded = await ExamService(db).calculate_score(
+        session["exam_id"], [a.dict() for a in payload.answers]
+    )
+
+    # Filter on status so a double-submit can't grade twice
+    updated = await db["sessions"].update_one(
+        {"_id": sid, "status": SessionStatus.ONGOING.value},
+        {"$set": {
+            "status": SessionStatus.SUBMITTED.value,
+            "submitted_at": now,
+            "score": graded["score"],
+            "total_marks": graded["total_marks"],
+            "percentage": graded["percentage"],
+            "passed": graded["passed"],
+            "answers": graded["graded_answers"],
+        }},
+    )
+    if updated.matched_count == 0:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This exam was already submitted")
+
+    return {
+        "success": True,
+        "result": {
+            "score": graded["score"],
+            "total_marks": graded["total_marks"],
+            "percentage": graded["percentage"],
+            "passed": graded["passed"],
+            "passing_marks": graded["passing_marks"],
+        },
+    }
 
 
-@router.get("/results/{session_id}", response_model=ExamResultResponse)
-async def get_exam_results(session_id: str, db=Depends(get_db)):
-    """
-    Get exam results for a completed session
-    """
-    try:
-        from bson.objectid import ObjectId
-
-        results_col = db["results"]
-        result = await results_col.find_one({"session_id": ObjectId(session_id)})
-
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Result not found"
-            )
-
-        return {
-            "session_id": str(result["session_id"]),
-            "student_id": result["student_id"],
-            "exam_id": result["exam_id"],
-            "total_questions": result["total_questions"],
-            "correct_answers": result["correct_answers"],
-            "score_percentage": result["score_percentage"],
-            "passed": result["passed"],
-            "submitted_at": str(result.get("submitted_at", "")),
-            "proctoring_alerts": result.get("proctoring_alerts", [])
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error fetching results: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch results"
-        )
-
+# ─── Results ─────────────────────────────────────────────────────────────────
 
 @router.get("/results")
-async def get_all_student_results(
-    current_user: dict = Depends(get_current_user),
-    db=Depends(get_db),
-):
-    """
-    Get all results for the authenticated student
-    """
-    try:
-        student_id = current_user["user_id"]
+async def get_all_student_results(current_user: dict = student_only, db=Depends(get_db)):
+    results = await ResultService(db).get_student_results(current_user["user_id"])
+    return {"success": True, "count": len(results), "results": to_json(results)}
 
-        results_col = db["results"]
-        results = await results_col.find({"student_id": student_id}).to_list(length=None)
-        for r in results:
-            r["_id"] = str(r["_id"])
-            if "session_id" in r:
-                r["session_id"] = str(r["session_id"])
 
-        return {
-            "success": True,
-            "count": len(results),
-            "results": results
-        }
-
-    except Exception as e:
-        logger.error(f"Error fetching student results: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch results"
-        )
+@router.get("/results/{session_id}")
+async def get_result_detail(session_id: str, current_user: dict = student_only, db=Depends(get_db)):
+    session = await ResultService(db).get_session_detail(session_id, current_user["user_id"])
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Result not found")
+    if session["status"] != SessionStatus.SUBMITTED.value:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This exam has not been submitted yet")
+    return {"success": True, "result": to_json(session)}
