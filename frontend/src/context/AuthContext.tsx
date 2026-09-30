@@ -28,14 +28,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
     api
-      .get("/api/auth/me")
+      .get("/auth/me")
       .then((res) => setUser(res.data))
       .catch(() => localStorage.removeItem("token"))
       .finally(() => setIsLoading(false));
   }, []);
 
   const login = useCallback(async (credentials: Credentials) => {
-    const res = await api.post("/api/auth/login", credentials);
+    const res = await api.post("/auth/login", credentials);
     localStorage.setItem("token", res.data.access_token);
     setUser(res.data.user);
     return res.data.user as User;
