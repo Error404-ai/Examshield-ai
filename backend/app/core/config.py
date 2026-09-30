@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
     # CORS
-    CORS_ORIGINS=["http://localhost:5173","https://examshield-ai-chi.vercel.app"]
+    CORS_ORIGINS: List[str] = ["http://localhost:5173", "https://examshield-ai-chi.vercel.app"]
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1", "*.hf.space"]
     EXTRA_ALLOWED_HOSTS: str = os.getenv("EXTRA_ALLOWED_HOSTS", "")
     EXTRA_CORS_ORIGINS: str = os.getenv("EXTRA_CORS_ORIGINS", "")
