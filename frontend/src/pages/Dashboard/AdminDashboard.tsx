@@ -7,7 +7,6 @@ import { useNavigate } from "react-router-dom";
 import { adminService } from "../../services/examService";
 import { ExamCard } from "../../components/exam/ExamCard";
 import { Button } from "../../components/common/Button";
-import { UserRole } from "../../types";
 import { getErrorMessage } from "../../utils";
 import { AdminStats, Exam } from "../../types";
 
@@ -22,8 +21,8 @@ export const AdminDashboard: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const statsData = await adminService.getStats();
-        const examsData = await adminService.getAllExams();
+        const statsData = await adminService.getDashboard();
+        const examsData = await adminService.getExams();
         setStats(statsData);
         setExams(examsData);
       } catch (err) {
@@ -104,8 +103,8 @@ export const AdminDashboard: React.FC = () => {
               <ExamCard
                 key={exam._id}
                 exam={exam}
+                role={"admin" as any}
                 onStart={() => navigate(`/admin/exams/${exam._id}/edit`)}
-                onView={() => navigate(`/admin/exams/${exam._id}/results`)}
               />
             ))}
           </div>

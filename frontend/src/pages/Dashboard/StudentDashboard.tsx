@@ -5,9 +5,8 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { studentService } from "../../services/examService";
-import { StudentStats, Exam } from "../../types";
+import { StudentStats, Exam, UserRole } from "../../types";
 import { ExamCard } from "../../components/exam/ExamCard";
-import { UserRole } from "../../types";
 import { getErrorMessage } from "../../utils";
 
 export const StudentDashboard: React.FC = () => {
@@ -21,7 +20,7 @@ export const StudentDashboard: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const statsData = await studentService.getStats();
+        const statsData = await studentService.getDashboard();
         const examsData = await studentService.getAvailableExams();
         setStats(statsData);
         setExams(examsData);
@@ -96,8 +95,8 @@ export const StudentDashboard: React.FC = () => {
               <ExamCard
                 key={exam._id}
                 exam={exam}
+                role={UserRole.STUDENT}
                 onStart={() => navigate(`/student/exam/${exam._id}`)}
-                onView={() => navigate(`/student/results/${exam._id}`)}
               />
             ))}
           </div>
