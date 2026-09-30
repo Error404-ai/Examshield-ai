@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import logging
 from app.core.database import get_db
+from app.core.security import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -274,3 +275,15 @@ async def get_all_student_results(db = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch results"
         )
+    
+@router.get("/stats")
+async def get_student_stats(
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    return {
+        "total_exams": 0,
+        "completed_exams": 0,
+        "upcoming_exams": 0,
+        "average_score": 0,
+    }
