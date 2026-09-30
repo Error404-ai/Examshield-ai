@@ -7,7 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Input } from "../../components/common/Input";
 import { Button } from "../../components/common/Button";
 import { Alert } from "../../components/common/Badge";
-import { useAuth } from "../../hooks/useAuth";
+import { useAuth } from "../../context/AuthContext";
 import { UserRole } from "../../types";
 import { getErrorMessage } from "../../utils";
 
@@ -22,7 +22,9 @@ export const LoginPage: React.FC = () => {
   // Redirect if already logged in
   React.useEffect(() => {
     if (user) {
-      navigate(user.role === UserRole.ADMIN ? "/admin/dashboard" : "/student/dashboard");
+      navigate(user.role === UserRole.ADMIN ? "/admin/dashboard" : "/student/dashboard", {
+        replace: true,
+      });
     }
   }, [user, navigate]);
 
@@ -34,7 +36,11 @@ export const LoginPage: React.FC = () => {
     }
     setLoading(true);
     try {
-      await login(form);
+      const loggedInUser = await login(form);
+      navigate(
+        loggedInUser.role === UserRole.ADMIN ? "/admin/dashboard" : "/student/dashboard",
+        { replace: true }
+      );
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

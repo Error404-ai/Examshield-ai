@@ -5,7 +5,7 @@
 
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useAuth } from "./hooks/useAuth";
+import { useAuth } from "./context/AuthContext";
 import { Navbar } from "./components/common/Navbar";
 import { ProtectedRoute } from "./components/common/ProtectedRoutes";
 import { UserRole } from "./types";
