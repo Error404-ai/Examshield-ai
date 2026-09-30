@@ -3,7 +3,10 @@ Application Configuration
 Settings management using Pydantic V2
 """
 
-from pydantic_settings import BaseSettings
+try:
+    from pydantic_settings import BaseSettings  # preferred (separate package)
+except Exception:  # fallback for environments with pydantic exposing BaseSettings
+    from pydantic import BaseSettings
 from pydantic import ConfigDict
 from typing import List
 import os
