@@ -17,6 +17,10 @@ from app.models.schemas import UserCreate, LoginRequest
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+import os
+
+ADMIN_EMAILS = {e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()}
+
 
 # ─── Register ────────────────────────────────────────────────────────────────
 
@@ -40,7 +44,7 @@ async def register(user_data: UserCreate, db=Depends(get_db)):
             "name": user_data.name,
             "email": email,
             "password_hash": SecurityUtils.hash_password(user_data.password),
-            "role": user_data.role.value,
+            "role": "admin" if email in ADMIN_EMAILS else "student",
             "is_active": True,
             "created_at": now,
             "updated_at": now,

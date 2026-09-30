@@ -143,44 +143,51 @@ async def list_available_exams(
         )
 
 
-@router.get("/exams/{exam_id}", response_model=ExamDetailResponse)
-async def get_exam_details(exam_id: str, db = Depends(get_db)):
-    """
-    Get detailed exam information
+@router.get("/exams/{exam_id}")
+async def get_exam_details(
+    exam_id: str,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Exam details plus questions, without the correct answers"""
+    from bson.objectid import ObjectId
+    from bson.errors import InvalidId
 
-    - **exam_id**: MongoDB ObjectId of the exam
-    """
     try:
-        from bson.objectid import ObjectId
+        exam = await db["exams"].find_one({"_id": ObjectId(exam_id), "is_published": True})
+    except InvalidId:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid exam ID")
 
-        exams_col = db["exams"]
-        exam = await exams_col.find_one({"_id": ObjectId(exam_id)})
+    if not exam:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Exam not found")
 
-        if not exam:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Exam not found"
-            )
-
-        return {
-            "id": str(exam["_id"]),
-            "title": exam["title"],
-            "description": exam["description"],
-            "instructions": exam.get("instructions", ""),
-            "duration_minutes": exam["duration_minutes"],
-            "total_questions": len(exam.get("questions", [])),
-            "questions": exam.get("questions", [])
+    questions = [
+        {
+            "_id": str(q.get("_id", "")),
+            "exam_id": exam_id,
+            "question_text": q.get("question_text", ""),
+            "question_type": q.get("question_type", "mcq"),
+            "options": q.get("options"),
+            "marks": q.get("marks", 1),
+            # correct_answer is deliberately left out
         }
+        for q in exam.get("questions", [])
+    ]
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error fetching exam details: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch exam details"
-        )
-
+    return {
+        "success": True,
+        "exam": {
+            "_id": str(exam["_id"]),
+            "title": exam.get("title", ""),
+            "description": exam.get("description", ""),
+            "instructions": exam.get("instructions", ""),
+            "duration": exam.get("duration", exam.get("duration_minutes", 0)),
+            "total_marks": exam.get("total_marks", 0),
+            "passing_marks": exam.get("passing_marks", 0),
+            "is_published": True,
+        },
+        "questions": questions,
+    }
 
 @router.post("/exams/{exam_id}/start", response_model=ExamSessionResponse)
 async def start_exam(exam_id: str, db = Depends(get_db)):
