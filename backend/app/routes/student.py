@@ -13,7 +13,7 @@ from app.core.security import get_current_user
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Exams a student is allowed to see (adjust once admin.py's exam fields are confirmed)
+# Students only see published exams
 PUBLISHED_FILTER = {"is_published": True}
 
 
@@ -125,7 +125,7 @@ async def list_available_exams(
                     "duration": exam.get("duration", exam.get("duration_minutes", 0)),
                     "total_marks": exam.get("total_marks", 0),
                     "passing_marks": exam.get("passing_marks", 0),
-                    "is_published": exam.get("is_published", exam.get("is_active", True)),
+                    "is_published": exam.get("is_published", False),
                     "created_by": str(exam.get("created_by", "")),
                     "created_at": str(exam.get("created_at", "")),
                     "updated_at": str(exam.get("updated_at", "")),
@@ -161,6 +161,7 @@ async def get_exam_details(
     if not exam:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Exam not found")
 
+    # Questions live in their own collection (created via POST /admin/questions)
     cursor = db["questions"].find({"exam_id": exam_id})
     questions = [
         {
@@ -170,6 +171,7 @@ async def get_exam_details(
             "question_type": q.get("question_type", "mcq"),
             "options": q.get("options"),
             "marks": q.get("marks", 1),
+            # correct_answer is deliberately left out
         }
         async for q in cursor
     ]
@@ -189,14 +191,11 @@ async def get_exam_details(
         "questions": questions,
     }
 
+
 @router.post("/exams/{exam_id}/start", response_model=ExamSessionResponse)
-async def start_exam(exam_id: str, db = Depends(get_db)):
+async def start_exam(exam_id: str, db=Depends(get_db)):
     """
-    Start an exam session
-
-    - **exam_id**: MongoDB ObjectId of the exam
-
-    Returns session details including session_id for proctoring
+    Start an exam session (still a placeholder - rebuilt in the exam-flow step)
     """
     try:
         # TODO: Get authenticated student_id from JWT
@@ -204,7 +203,6 @@ async def start_exam(exam_id: str, db = Depends(get_db)):
 
         sessions_col = db["exam_sessions"]
 
-        # Create new exam session
         session_doc = {
             "exam_id": exam_id,
             "student_id": student_id,
@@ -235,12 +233,9 @@ async def start_exam(exam_id: str, db = Depends(get_db)):
 
 
 @router.post("/exams/{exam_id}/submit")
-async def submit_answers(exam_id: str, answers: List[SubmitAnswerRequest], db = Depends(get_db)):
+async def submit_answers(exam_id: str, answers: List[SubmitAnswerRequest], db=Depends(get_db)):
     """
-    Submit exam answers
-
-    - **exam_id**: MongoDB ObjectId of the exam
-    - **answers**: List of question-answer pairs
+    Submit exam answers (still a placeholder - rebuilt in the exam-flow step)
     """
     try:
         return {
@@ -258,11 +253,9 @@ async def submit_answers(exam_id: str, answers: List[SubmitAnswerRequest], db = 
 
 
 @router.get("/results/{session_id}", response_model=ExamResultResponse)
-async def get_exam_results(session_id: str, db = Depends(get_db)):
+async def get_exam_results(session_id: str, db=Depends(get_db)):
     """
     Get exam results for a completed session
-
-    - **session_id**: MongoDB ObjectId of the exam session
     """
     try:
         from bson.objectid import ObjectId
@@ -299,16 +292,22 @@ async def get_exam_results(session_id: str, db = Depends(get_db)):
 
 
 @router.get("/results")
-async def get_all_student_results(db = Depends(get_db)):
+async def get_all_student_results(
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db),
+):
     """
-    Get all results for authenticated student
+    Get all results for the authenticated student
     """
     try:
-        # TODO: Get authenticated student_id from JWT
-        student_id = "placeholder_student_id"
+        student_id = current_user["user_id"]
 
         results_col = db["results"]
         results = await results_col.find({"student_id": student_id}).to_list(length=None)
+        for r in results:
+            r["_id"] = str(r["_id"])
+            if "session_id" in r:
+                r["session_id"] = str(r["session_id"])
 
         return {
             "success": True,

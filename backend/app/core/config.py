@@ -40,6 +40,7 @@ class Settings(BaseSettings):
 
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "https://examshield-ai-chi.vercel.app"]
+    # *.onrender.com added so Render requests aren't rejected by TrustedHostMiddleware
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1", "*.hf.space", "*.onrender.com"]
     EXTRA_ALLOWED_HOSTS: str = os.getenv("EXTRA_ALLOWED_HOSTS", "")
     EXTRA_CORS_ORIGINS: str = os.getenv("EXTRA_CORS_ORIGINS", "")
@@ -48,13 +49,13 @@ class Settings(BaseSettings):
     FACE_RECOGNITION_THRESHOLD: float = 0.6
     EYE_GAZE_THRESHOLD: float = 0.7
     CONFIDENCE_THRESHOLD: float = 0.8
-    
+
     # Proctoring Settings
     MAX_HEAD_MOVEMENT: float = 30.0  # degrees
     MAX_EYE_DEVIATION: float = 20.0  # degrees
     FRAME_CAPTURE_INTERVAL: int = 2  # seconds
     ALLOWED_TAB_SWITCHES: int = 2
-    
+
     # File Storage
     MAX_VIDEO_DURATION: int = 300  # 5 minutes max for uploads
     UPLOAD_DIR: str = "uploads/"

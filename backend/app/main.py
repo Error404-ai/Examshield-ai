@@ -3,7 +3,7 @@ ExamShield AI - FastAPI Backend
 Real-time exam proctoring with AI-powered cheating detection
 """
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -38,7 +38,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Middleware
+# CORS Middleware (uses the merged list: defaults + FRONTEND_URL + EXTRA_CORS_ORIGINS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.all_cors_origins,
