@@ -2,13 +2,13 @@
  * Admin Dashboard Page
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { adminService } from "../../services/examService";
 import { ExamCard } from "../../components/exam/ExamCard";
 import { Button } from "../../components/common/Button";
 import { getErrorMessage } from "../../utils";
-import { AdminStats, Exam } from "../../types";
+import { AdminStats, Exam, UserRole } from "../../types";
 
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -17,23 +17,36 @@ export const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const statsData = await adminService.getDashboard();
-        const examsData = await adminService.getExams();
-        setStats(statsData);
-        setExams(examsData);
-      } catch (err) {
-        setError(getErrorMessage(err));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [statsData, examsData] = await Promise.all([
+        adminService.getDashboard(),
+        adminService.getExams(),
+      ]);
+      setStats(statsData);
+      setExams(examsData);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleDelete = async (examId: string) => {
+    if (!window.confirm("Delete this exam and all its questions?")) return;
+    try {
+      await adminService.deleteExam(examId);
+      await fetchData();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  };
 
   if (loading) {
     return (
@@ -103,8 +116,8 @@ export const AdminDashboard: React.FC = () => {
               <ExamCard
                 key={exam._id}
                 exam={exam}
-                role={"admin" as any}
-                onStart={() => navigate(`/admin/exams/${exam._id}/edit`)}
+                role={UserRole.ADMIN}
+                onDelete={handleDelete}
               />
             ))}
           </div>

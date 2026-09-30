@@ -86,17 +86,32 @@ export const validatePassword = (password: string): string | null => {
 
 // ============ Error Handling ============
 
+/**
+ * Always returns a plain string. FastAPI sends 422 errors as an array of
+ * objects ({type, loc, msg, ...}); rendering that directly crashes React
+ * (error #31), so we flatten it into readable text.
+ */
 export const getErrorMessage = (error: unknown): string => {
-  if (typeof error === "object" && error !== null) {
-    const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string };
-    return (
-      err.response?.data?.detail ||
-      err.response?.data?.message ||
-      err.message ||
-      "Something went wrong"
-    );
+  const err = error as {
+    response?: { data?: { detail?: unknown; message?: string } };
+    message?: string;
+  };
+  const detail = err?.response?.data?.detail;
+
+  if (typeof detail === "string") return detail;
+
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: any) => {
+        const field = (d?.loc ?? []).filter((p: string) => p !== "body").join(".");
+        const msg = typeof d?.msg === "string" ? d.msg : "Invalid value";
+        return field ? `${field}: ${msg}` : msg;
+      })
+      .join("; ");
   }
-  return "Something went wrong";
+
+  const fallback = err?.response?.data?.message || err?.message;
+  return typeof fallback === "string" ? fallback : "Something went wrong";
 };
 
 // ============ Score Helpers ============

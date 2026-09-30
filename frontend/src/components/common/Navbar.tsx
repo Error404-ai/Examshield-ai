@@ -16,15 +16,14 @@ export const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Only link to pages that exist
   const adminLinks = [
     { label: "Dashboard", to: "/admin/dashboard" },
-    { label: "Exams", to: "/admin/exams" },
-    { label: "Alerts", to: "/admin/alerts" },
+    { label: "Create Exam", to: "/admin/exams/new" },
   ];
 
   const studentLinks = [
     { label: "Dashboard", to: "/student/dashboard" },
-    { label: "Exams", to: "/student/exams" },
     { label: "Results", to: "/student/results" },
   ];
 
