@@ -96,12 +96,12 @@ class RefreshTokenRequest(BaseModel):
 
 class ExamCreate(BaseModel):
     """Create exam schema"""
-    title: str = Field(..., min_length=5, max_length=200)
-    description: str = Field(..., min_length=10)
+    title: str = Field(..., min_length=3, max_length=200)
+    description: str = ""
     duration: int = Field(..., gt=0, le=300)  # Max 5 hours
-    total_marks: int = Field(..., gt=0)
-    passing_marks: int = Field(..., ge=0)
-    
+    total_marks: int = Field(0, ge=0)
+    passing_marks: int = Field(0, ge=0)
+
     @validator("passing_marks")
     def passing_marks_valid(cls, v, values):
         if "total_marks" in values and v > values["total_marks"]:
