@@ -1,139 +1,214 @@
 /**
- * Exam Page - Student takes exam with proctoring
+ * Exam Page - student takes the exam
+ * Loader (fetch + start/resume session) is split from the runner so the
+ * timer only mounts once the real remaining time is known.
+ * Proctoring (webcam, tab-switch logging to server) is added in a later step.
  */
 
-import React, { useState, useEffect } from "react";
-import { useParams, useSearchParams, useNavigate } from "react-router-dom";
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { studentService } from "../../services/examService";
 import { QuestionCard } from "../../components/exam/QuestionCard";
-import { ProctoringOverlay } from "../../components/proctoring/ProctoringOverlay";
-import { useProctoring } from "../../hooks/useProctoring";
 import { useExamTimer } from "../../hooks/useExamTimer";
-import { Question, Exam, SessionSubmit, StudentAnswer } from "../../types";
+import { Exam, Question, StudentAnswer } from "../../types";
 import { getErrorMessage } from "../../utils";
 
-export const ExamPage: React.FC = () => {
-  const { examId } = useParams<{ examId: string }>();
-  const [searchParams] = useSearchParams();
+// ─── Runner ──────────────────────────────────────────────────────────────────
+
+interface RunnerProps {
+  exam: Exam;
+  questions: Question[];
+  sessionId: string;
+  remainingSeconds: number;
+}
+
+const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remainingSeconds }) => {
   const navigate = useNavigate();
-
-  const [exam, setExam] = useState<Exam | null>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [sessionId, setSessionId] = useState<string>("");
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [answers, setAnswers] = useState<Map<string, string>>(new Map());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [index, setIndex] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [tabSwitches, setTabSwitches] = useState(0);
 
-  const { proctoringData, proctoringError, startProctoring, stopProctoring } = useProctoring(sessionId);
-  const { timeLeft, isExpired, formatTime } = useExamTimer(exam?.duration || 0);
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
+  const submittedRef = useRef(false);
 
-  // Load exam and questions
-  useEffect(() => {
-    const loadExam = async () => {
-      if (!examId) return;
-      try {
-        setLoading(true);
-        const examData = await studentService.getExam(examId);
-        setExam(examData);
-        const questionsData = await studentService.getExamQuestions(examId);
-        setQuestions(questionsData);
-      } catch (err) {
-        setError(getErrorMessage(err));
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadExam();
-  }, [examId]);
-
-  // Start session and proctoring
-  useEffect(() => {
-    const startSession = async () => {
-      if (!examId) return;
-      try {
-        const session = await studentService.startExamSession(examId);
-        setSessionId(session.session_id);
-        startProctoring();
-      } catch (err) {
-        setError(getErrorMessage(err));
-      }
-    };
-    if (questions.length > 0) {
-      startSession();
-    }
-  }, [questions, examId, startProctoring]);
-
-  // Handle timer expiry
-  useEffect(() => {
-    if (isExpired && sessionId) {
-      handleSubmit();
-    }
-  }, [isExpired, sessionId]);
-
-  const currentQuestion = questions[currentQuestionIndex];
-
-  const handleAnswerChange = (answer: string) => {
-    if (currentQuestion) {
-      const newAnswers = new Map(answers);
-      newAnswers.set(currentQuestion._id, answer);
-      setAnswers(newAnswers);
-    }
-  };
-
-  const handleNext = () => {
-    if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1);
-    }
-  };
-
-  const handlePrevious = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(currentQuestionIndex - 1);
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (!sessionId) return;
+  const submit = useCallback(async () => {
+    if (submittedRef.current) return;
+    submittedRef.current = true;
     setSubmitting(true);
     try {
-      const studentAnswers: StudentAnswer[] = Array.from(answers.entries()).map(([questionId, answer]) => ({
-        question_id: questionId,
-        selected_answer: answer,
-      }));
-
-      const payload: SessionSubmit = {
+      await studentService.submitExam({
         session_id: sessionId,
-        answers: studentAnswers,
-      };
-
-      await studentService.submitExam(payload);
-      stopProctoring();
-      navigate(`/student/results/${sessionId}`);
+        answers: Object.entries(answersRef.current).map(([question_id, selected_answer]) => ({
+          question_id,
+          selected_answer,
+        })),
+      });
+      navigate(`/student/results/${sessionId}`, { replace: true });
     } catch (err) {
+      submittedRef.current = false;
       setError(getErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
+  }, [sessionId, navigate]);
+
+  const { timeLeft, formattedTime } = useExamTimer(remainingSeconds, submit);
+
+  const handleAnswer = (a: StudentAnswer) =>
+    setAnswers((prev) => ({ ...prev, [a.question_id]: a.selected_answer }));
+
+  const handleSubmitClick = () => {
+    const unanswered = questions.length - Object.keys(answers).length;
+    const msg = unanswered > 0
+      ? `You have ${unanswered} unanswered question(s). Submit anyway?`
+      : "Submit your exam now?";
+    if (window.confirm(msg)) submit();
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
-          <p className="text-sm text-gray-500">Loading exam...</p>
+  // Count tab switches locally for now (server logging comes with proctoring)
+  useEffect(() => {
+    const onHide = () => document.hidden && setTabSwitches((n) => n + 1);
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, []);
+
+  // Warn before accidental refresh/close
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (!submittedRef.current) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
+
+  const q = questions[index];
+  const isLast = index === questions.length - 1;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="px-6 py-4 flex items-center justify-between max-w-4xl mx-auto">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">{exam.title}</h1>
+            <p className="text-sm text-gray-500">
+              Question {index + 1} of {questions.length}
+              {tabSwitches > 0 && (
+                <span className="ml-3 text-yellow-700">Tab switches: {tabSwitches}</span>
+              )}
+            </p>
+          </div>
+          <div className={`text-2xl font-bold tabular-nums ${timeLeft < 300 ? "text-red-600" : "text-gray-900"}`}>
+            {formattedTime}
+          </div>
         </div>
       </div>
-    );
-  }
 
-  if (!exam || questions.length === 0) {
+      <div className="px-6 py-8 max-w-4xl mx-auto">
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <p className="text-red-800">{error}</p>
+          </div>
+        )}
+
+        <QuestionCard question={q} index={index} answer={answers[q._id] || ""} onAnswer={handleAnswer} />
+
+        <div className="flex items-center justify-between mt-8 gap-4">
+          <button
+            onClick={() => setIndex((i) => Math.max(0, i - 1))}
+            disabled={index === 0}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg disabled:opacity-50"
+          >
+            Previous
+          </button>
+
+          <div className="flex flex-wrap justify-center gap-1">
+            {questions.map((qq, i) => (
+              <button
+                key={qq._id}
+                onClick={() => setIndex(i)}
+                className={`px-3 py-1 rounded text-sm ${
+                  i === index
+                    ? "bg-indigo-600 text-white"
+                    : answers[qq._id]
+                    ? "bg-green-100 text-green-700"
+                    : "bg-gray-200 text-gray-700"
+                }`}
+              >
+                {i + 1}
+              </button>
+            ))}
+          </div>
+
+          {isLast ? (
+            <button
+              onClick={handleSubmitClick}
+              disabled={submitting}
+              className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {submitting ? "Submitting..." : "Submit Exam"}
+            </button>
+          ) : (
+            <button
+              onClick={() => setIndex((i) => i + 1)}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            >
+              Next
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Loader ──────────────────────────────────────────────────────────────────
+
+export const ExamPage: React.FC = () => {
+  const { examId } = useParams<{ examId: string }>();
+  const navigate = useNavigate();
+
+  const [data, setData] = useState<{
+    exam: Exam;
+    questions: Question[];
+    sessionId: string;
+    remaining: number;
+  } | null>(null);
+  const [error, setError] = useState("");
+  const startedRef = useRef(false); // guards React StrictMode's double effect
+
+  useEffect(() => {
+    if (!examId || startedRef.current) return;
+    startedRef.current = true;
+
+    (async () => {
+      try {
+        const { exam, questions } = await studentService.getExam(examId);
+        const session = await studentService.startSession(examId);
+
+        const startedAt = new Date(session.started_at).getTime();
+        const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+        const remaining = Math.max(0, session.duration_minutes * 60 - elapsedSeconds);
+
+        setData({
+          exam,
+          questions,
+          sessionId: session.session_id,
+          remaining,
+        });
+      } catch (err) {
+        setError(getErrorMessage(err));
+      }
+    })();
+  }, [examId]);
+
+  if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-500 mb-4">Exam not found or no questions available</p>
+          <p className="text-red-700 mb-4">{error}</p>
           <button
             onClick={() => navigate("/student/dashboard")}
             className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -145,87 +220,23 @@ export const ExamPage: React.FC = () => {
     );
   }
 
+  if (!data) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+          <p className="text-sm text-gray-500">Preparing your exam...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <ProctoringOverlay proctoringData={proctoringData} error={proctoringError} />
-
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="px-6 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">{exam.title}</h1>
-            <p className="text-sm text-gray-500">
-              Question {currentQuestionIndex + 1} of {questions.length}
-            </p>
-          </div>
-          <div className={`text-2xl font-bold ${timeLeft < 300 ? "text-red-600" : "text-gray-900"}`}>
-            {formatTime(timeLeft)}
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="px-6 py-8 max-w-4xl mx-auto">
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-red-800">{error}</p>
-          </div>
-        )}
-
-        {currentQuestion && (
-          <QuestionCard
-            question={currentQuestion}
-            answer={answers.get(currentQuestion._id) || ""}
-            onAnswerChange={handleAnswerChange}
-          />
-        )}
-
-        {/* Navigation */}
-        <div className="flex items-center justify-between mt-8">
-          <button
-            onClick={handlePrevious}
-            disabled={currentQuestionIndex === 0}
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg disabled:opacity-50"
-          >
-            Previous
-          </button>
-
-          <div className="text-sm text-gray-600">
-            {Array.from({ length: questions.length }).map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setCurrentQuestionIndex(i)}
-                className={`mx-1 px-3 py-1 rounded ${
-                  i === currentQuestionIndex
-                    ? "bg-indigo-600 text-white"
-                    : answers.has(questions[i]._id)
-                      ? "bg-green-100 text-green-700"
-                      : "bg-gray-200 text-gray-700"
-                }`}
-              >
-                {i + 1}
-              </button>
-            ))}
-          </div>
-
-          {currentQuestionIndex === questions.length - 1 ? (
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {submitting ? "Submitting..." : "Submit Exam"}
-            </button>
-          ) : (
-            <button
-              onClick={handleNext}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-            >
-              Next
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+    <ExamRunner
+      exam={data.exam}
+      questions={data.questions}
+      sessionId={data.sessionId}
+      remainingSeconds={data.remaining}
+    />
   );
 };
