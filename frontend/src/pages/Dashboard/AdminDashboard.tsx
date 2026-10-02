@@ -2,7 +2,7 @@
  * Admin Dashboard Page
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { adminService } from "../../services/examService";
 import { ExamCard } from "../../components/exam/ExamCard";
@@ -17,9 +17,8 @@ export const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const fetchData = useCallback(async () => {
+  const fetchData = async () => {
     setLoading(true);
-    setError("");
     try {
       const [statsData, examsData] = await Promise.all([
         adminService.getDashboard(),
@@ -32,14 +31,15 @@ export const AdminDashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+  }, []);
 
   const handleDelete = async (examId: string) => {
-    if (!window.confirm("Delete this exam and all its questions?")) return;
+    const exam = exams.find((e) => e._id === examId);
+    if (!window.confirm(`Delete "${exam?.title}"? This cannot be undone.`)) return;
     try {
       await adminService.deleteExam(examId);
       await fetchData();
@@ -61,13 +61,11 @@ export const AdminDashboard: React.FC = () => {
 
   return (
     <div className="px-6 py-8 max-w-7xl mx-auto">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
         <p className="text-gray-500 mt-1">Manage exams and monitor student activity</p>
       </div>
 
-      {/* Stats Grid */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -89,14 +87,12 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Error Message */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-8">
           <p className="text-red-800">{error}</p>
         </div>
       )}
 
-      {/* Exams Section */}
       <div>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-gray-900">All Exams</h2>
@@ -117,6 +113,7 @@ export const AdminDashboard: React.FC = () => {
                 key={exam._id}
                 exam={exam}
                 role={UserRole.ADMIN}
+                onEdit={(id) => navigate(`/admin/exams/${id}/edit`)}
                 onDelete={handleDelete}
               />
             ))}
