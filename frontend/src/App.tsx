@@ -91,6 +91,11 @@ const App: React.FC = () => {
                 </ProtectedRoute>
               }
             />
+            <Route path="/admin/exams/:examId/edit" element={
+               <ProtectedRoute user={user} isLoading={isLoading} requiredRole={UserRole.ADMIN}>
+                   <CreateExamPage />
+               </ProtectedRoute>
+             } />
 
             {/* Default redirect */}
             <Route

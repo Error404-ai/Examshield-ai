@@ -149,6 +149,22 @@ async def add_question(body: QuestionCreate, admin=Depends(admin_only), db=Depen
     await _sync_total_marks(db, body.exam_id)
     return {"success": True, "question_id": str(result.inserted_id)}
 
+@router.put("/questions/{question_id}")
+async def update_question(question_id: str, body: QuestionCreate, admin=Depends(admin_only), db=Depends(get_db)):
+    question = await db.questions.find_one({"_id": oid(question_id)})
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    await _owned_exam(db, question["exam_id"], admin["user_id"])
+    if body.options and body.correct_answer not in body.options:
+        raise HTTPException(status_code=400, detail="Correct answer must be one of the options")
+
+    doc = body.model_dump(mode="json")
+    doc["exam_id"] = question["exam_id"]  # can't move a question to another exam
+    doc["updated_at"] = datetime.utcnow()
+    await db.questions.update_one({"_id": question["_id"]}, {"$set": doc})
+    await _sync_total_marks(db, question["exam_id"])
+    return {"success": True, "message": "Question updated"}
+
 
 @router.delete("/questions/{question_id}")
 async def delete_question(question_id: str, admin=Depends(admin_only), db=Depends(get_db)):

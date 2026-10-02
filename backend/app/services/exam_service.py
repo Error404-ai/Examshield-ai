@@ -47,6 +47,18 @@ class ExamService:
         )
         return result.matched_count > 0
 
+    async def update_question(self, question_id: str, payload: QuestionCreate) -> bool:
+        doc = payload.dict()
+        doc["question_type"] = getattr(doc["question_type"], "value", doc["question_type"])
+        result = await self.db.questions.update_one(
+            {"_id": ObjectId(question_id)},
+            {"$set": doc},
+        )
+        if result.matched_count == 0:
+            return False
+        await self._recalc_total_marks(payload.exam_id)
+        return True
+
     async def publish_exam(self, exam_id: str, admin_id: str) -> str:
         """
         Returns "ok", "not_found" or "no_questions".
