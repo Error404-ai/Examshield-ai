@@ -1,370 +1,152 @@
 """
 ExamShield AI - Proctoring Routes
-Real-time exam monitoring and AI-powered cheating detection
+The AI (MediaPipe face detection) runs in the student's browser and sends only
+small event records here. No video frames are uploaded or stored.
+
+Events are saved on the exam session document (sessions.proctoring_alerts),
+so they live and die with the session.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status, File, UploadFile
-from pydantic import BaseModel
-from typing import List, Optional
 import logging
+from datetime import datetime
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from pymongo import ReturnDocument
+
 from app.core.database import get_db
+from app.core.security import get_current_user, require_role
+from app.core.utils import oid
+from app.models.schemas import SessionStatus
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+admin_only = require_role("admin")
 
-# Pydantic Models
-class ProctoringStartRequest(BaseModel):
-    """Start proctoring session request"""
+MAX_TAB_SWITCHES = 5        # at this many tab switches the exam is ended
+MAX_STORED_EVENTS = 500     # per session, oldest are dropped first
+
+EventType = Literal["tab_switch", "no_face", "multiple_faces", "looking_away", "camera_off"]
+
+# Severity and wording are decided by the server, not the browser
+EVENT_INFO = {
+    "tab_switch": ("high", "Student left the exam tab"),
+    "no_face": ("high", "No face detected in the camera"),
+    "multiple_faces": ("critical", "More than one person detected"),
+    "looking_away": ("medium", "Student looked away from the screen"),
+    "camera_off": ("critical", "Camera was turned off"),
+}
+
+SEVERITY_WEIGHTS = {"critical": 25, "high": 10, "medium": 3, "low": 1}
+
+
+class ProctoringEventIn(BaseModel):
     session_id: str
-    exam_id: str
-    student_id: str
+    alert_type: EventType
 
 
-class VideoFrameRequest(BaseModel):
-    """Video frame for analysis"""
-    session_id: str
-    frame_data: str
-    timestamp: str
+def _iso(value) -> str:
+    """Stored as naive UTC datetimes"""
+    return value.isoformat() + "Z" if isinstance(value, datetime) else str(value)
 
 
-class ProctoringAlert(BaseModel):
-    """Proctoring alert model"""
-    alert_type: str
-    severity: str
-    description: str
-    timestamp: str
-    confidence: float = 0.0
+# ─── Student: log one event ──────────────────────────────────────────────────
 
-
-class AlertResponse(BaseModel):
-    """Alert response model"""
-    alerts: List[ProctoringAlert]
-    total_alerts: int
-    violations_count: int
-
-
-# Routes
-@router.post("/session/start")
-async def start_proctoring_session(request: ProctoringStartRequest, db = Depends(get_db)):
-    """
-    Start a proctoring session
-    
-    Initializes monitoring for exam session:
-    - Sets up camera stream
-    - Initializes ML models
-    - Starts alert system
-    
-    - **session_id**: Exam session ID
-    - **exam_id**: Exam ID
-    - **student_id**: Student ID
-    """
-    try:
-        sessions_col = db["exam_sessions"]
-        
-        # Update session with proctoring start
-        result = await sessions_col.update_one(
-            {"_id": request.session_id},
-            {
-                "$set": {
-                    "proctoring_started": True,
-                    "proctoring_start_time": None,
-                    "proctoring_alerts": []
-                }
-            }
-        )
-        
-        if result.matched_count == 0:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found"
-            )
-        
-        return {
-            "success": True,
-            "message": "Proctoring session started",
-            "session_id": request.session_id,
-            "monitoring": {
-                "face_recognition": True,
-                "eye_gaze_detection": True,
-                "behavior_analysis": True,
-                "phone_detection": True
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error starting proctoring: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to start proctoring"
-        )
-
-
-@router.post("/frame/analyze")
-async def analyze_video_frame(request: VideoFrameRequest, db = Depends(get_db)):
-    """
-    Analyze video frame for proctoring violations
-    
-    ML models check for:
-    - Face recognition & identity verification
-    - Multiple faces
-    - No face detected
-    - Eye gaze (looking away from screen)
-    - Suspicious movements
-    - Phone/external device detection
-    
-    - **session_id**: Exam session ID
-    - **frame_data**: Base64 encoded video frame
-    - **timestamp**: Frame timestamp
-    """
-    try:
-        alerts = []
-        
-        # Save frame and alerts to database
-        sessions_col = db["exam_sessions"]
-        
-        return {
-            "success": True,
-            "session_id": request.session_id,
-            "timestamp": request.timestamp,
-            "violations_detected": len(alerts) > 0,
-            "alerts": alerts,
-            "monitoring_status": "active"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error analyzing frame: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to analyze frame"
-        )
-
-
-@router.post("/frame/upload")
-async def upload_frame(
-    session_id: str,
-    file: UploadFile = File(...),
-    db = Depends(get_db)
+@router.post("/event")
+async def log_event(
+    body: ProctoringEventIn,
+    user=Depends(get_current_user),
+    db=Depends(get_db),
 ):
-    """
-    Upload video frame for analysis
-    
-    Alternative to base64 encoding - for large files
-    
-    - **session_id**: Exam session ID
-    - **file**: Video frame file (image)
-    """
-    try:
-        if not file.content_type.startswith("image/"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File must be an image"
-            )
-        
-        return {
-            "success": True,
-            "message": "Frame uploaded successfully",
-            "session_id": session_id,
-            "todo": "Implement frame upload processing"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error uploading frame: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upload frame"
+    severity, description = EVENT_INFO[body.alert_type]
+    event = {
+        "alert_type": body.alert_type,
+        "severity": severity,
+        "description": description,
+        "timestamp": datetime.utcnow(),
+    }
+
+    update = {
+        "$push": {"proctoring_alerts": {"$each": [event], "$slice": -MAX_STORED_EVENTS}}
+    }
+    if body.alert_type == "tab_switch":
+        update["$inc"] = {"tab_switches": 1}
+
+    # Only the student's own, still-running session can receive events
+    session = await db.sessions.find_one_and_update(
+        {
+            "_id": oid(body.session_id),
+            "student_id": user["user_id"],
+            "status": SessionStatus.ONGOING.value,
+        },
+        update,
+        return_document=ReturnDocument.AFTER,
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Active session not found")
+
+    tab_switches = session.get("tab_switches", 0)
+    terminate = tab_switches >= MAX_TAB_SWITCHES
+    if terminate and not session.get("proctoring_terminated"):
+        await db.sessions.update_one(
+            {"_id": session["_id"]}, {"$set": {"proctoring_terminated": True}}
         )
+        logger.warning(f"Session {body.session_id} ended by proctoring (tab switches)")
+
+    return {"success": True, "tab_switch_count": tab_switches, "terminate": terminate}
 
 
-@router.get("/alerts/{session_id}", response_model=AlertResponse)
-async def get_session_alerts(session_id: str, db = Depends(get_db)):
-    """
-    Get all proctoring alerts for a session
-    
-    - **session_id**: Exam session ID
-    
-    Returns:
-    - List of all alerts during exam
-    - Alert severity levels
-    - Violation count
-    """
-    try:
-        sessions_col = db["exam_sessions"]
-        
-        # Get session with alerts
-        session = await sessions_col.find_one({"_id": session_id})
-        
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found"
-            )
-        
-        alerts = session.get("proctoring_alerts", [])
-        
-        # Count violations by severity
-        violations = sum(1 for a in alerts if a.get("severity") in ["medium", "high"])
-        
-        return AlertResponse(
-            alerts=alerts,
-            total_alerts=len(alerts),
-            violations_count=violations
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error fetching alerts: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch alerts"
-        )
+# ─── Admin: report for one session ───────────────────────────────────────────
 
+@router.get("/report/{session_id}")
+async def get_report(session_id: str, admin=Depends(admin_only), db=Depends(get_db)):
+    session = await db.sessions.find_one({"_id": oid(session_id)})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
 
-@router.get("/alerts/{session_id}/summary")
-async def get_alerts_summary(session_id: str, db = Depends(get_db)):
-    """
-    Get summary of proctoring violations
-    
-    - **session_id**: Exam session ID
-    
-    Returns alert statistics and breakdown
-    """
-    try:
-        sessions_col = db["exam_sessions"]
-        session = await sessions_col.find_one({"_id": session_id})
-        
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found"
-            )
-        
-        alerts = session.get("proctoring_alerts", [])
-        
-        # Generate summary
-        alert_types = {}
-        severity_counts = {"low": 0, "medium": 0, "high": 0}
-        
-        for alert in alerts:
-            alert_type = alert.get("alert_type", "unknown")
-            severity = alert.get("severity", "low")
-            
-            alert_types[alert_type] = alert_types.get(alert_type, 0) + 1
-            severity_counts[severity] += 1
-        
-        return {
-            "session_id": session_id,
-            "total_alerts": len(alerts),
-            "by_type": alert_types,
-            "by_severity": severity_counts,
-            "has_violations": sum(severity_counts["medium"] + severity_counts["high"]) > 0,
-            "recommendation": "Review carefully" if severity_counts["high"] > 0 else "Pass"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting alerts summary: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get alerts summary"
-        )
+    # Admins can only see sessions of their own exams
+    owned = await db.exams.find_one(
+        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}, {"_id": 1}
+    )
+    if not owned:
+        raise HTTPException(status_code=404, detail="Session not found")
 
+    events = session.get("proctoring_alerts", [])
+    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for e in events:
+        sev = e.get("severity", "low")
+        counts[sev] = counts.get(sev, 0) + 1
 
-@router.post("/session/{session_id}/end")
-async def end_proctoring_session(session_id: str, db = Depends(get_db)):
-    """
-    End proctoring session and finalize analysis
-    
-    - **session_id**: Exam session ID
-    
-    Actions:
-    - Stop camera monitoring
-    - Finalize alerts
-    - Generate proctoring report
-    """
-    try:
-        sessions_col = db["exam_sessions"]
-        
-        # Update session
-        result = await sessions_col.update_one(
-            {"_id": session_id},
+    score = min(100, sum(SEVERITY_WEIGHTS[s] * n for s, n in counts.items()))
+    if score < 20:
+        recommendation = "approve"
+    elif score < 50:
+        recommendation = "review"
+    else:
+        recommendation = "reject"
+
+    report = {
+        "session_id": session_id,
+        "total_events": len(events),
+        "critical_incidents": counts["critical"],
+        "high_incidents": counts["high"],
+        "medium_incidents": counts["medium"],
+        "low_incidents": counts["low"],
+        "tab_switches": session.get("tab_switches", 0),
+        "terminated_by_proctoring": bool(session.get("proctoring_terminated")),
+        "suspicion_score": score,
+        "recommendation": recommendation,
+        "generated_at": _iso(datetime.utcnow()),
+        "alerts": [
             {
-                "$set": {
-                    "proctoring_active": False,
-                    "proctoring_end_time": None
-                }
+                "alert_type": e.get("alert_type"),
+                "severity": e.get("severity"),
+                "description": e.get("description"),
+                "timestamp": _iso(e.get("timestamp")),
             }
-        )
-        
-        if result.matched_count == 0:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found"
-            )
-        
-        return {
-            "success": True,
-            "message": "Proctoring session ended",
-            "session_id": session_id,
-            "todo": "Generate final proctoring report"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error ending proctoring: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to end proctoring"
-        )
-
-
-@router.get("/status/{session_id}")
-async def get_proctoring_status(session_id: str, db = Depends(get_db)):
-    """
-    Get real-time proctoring status for a session
-    
-    - **session_id**: Exam session ID
-    
-    Returns:
-    - Active monitoring status
-    - Recent alerts
-    - System health
-    """
-    try:
-        sessions_col = db["exam_sessions"]
-        session = await sessions_col.find_one({"_id": session_id})
-        
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found"
-            )
-        
-        return {
-            "session_id": session_id,
-            "proctoring_active": session.get("proctoring_active", False),
-            "system_status": "healthy",
-            "current_alert_count": len(session.get("proctoring_alerts", [])),
-            "monitoring": {
-                "camera": "active",
-                "face_detection": "enabled",
-                "eye_tracking": "enabled",
-                "behavior_analysis": "enabled"
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting status: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get status"
-        )
+            for e in events[-100:]
+        ],
+    }
+    return {"success": True, "report": report}
