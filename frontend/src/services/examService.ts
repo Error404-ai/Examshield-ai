@@ -56,6 +56,10 @@ export const adminService = {
     return data;
   },
 
+  async updateQuestion(questionId: string, payload: QuestionCreate): Promise<void> {
+    await api.put(`/admin/questions/${questionId}`, payload);
+  },
+
   async deleteQuestion(questionId: string): Promise<void> {
     await api.delete(`/admin/questions/${questionId}`);
   },
@@ -95,6 +99,7 @@ export const studentService = {
     session_id: string;
     duration_minutes: number;
     started_at: string;
+    remaining_seconds: number;
   }> {
     const { data } = await api.post(`/student/exams/${examId}/start`);
     return data;

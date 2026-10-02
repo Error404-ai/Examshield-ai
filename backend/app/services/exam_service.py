@@ -1,14 +1,35 @@
 """
 Exam Service
-Business logic for exam lifecycle management
+Business logic for exam lifecycle management.
+
+Conventions:
+- Methods return bool / Optional / a status string for "not found" style outcomes.
+- Methods raise ValueError for invalid input (routes map it to HTTP 400).
+- Anything an admin changes is checked against created_by, so one admin
+  can't touch another admin's exams or questions.
 """
 
-from motor.motor_asyncio import AsyncIOMotorDatabase
-from bson import ObjectId
-from typing import Optional, List, Dict
 from datetime import datetime
+from typing import Dict, List, Optional
+
+from bson import ObjectId
+from bson.errors import InvalidId
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.models.schemas import ExamCreate, ExamUpdate, QuestionCreate
+
+
+def _oid(value) -> Optional[ObjectId]:
+    """Parse an ObjectId; None if it's malformed (instead of raising)"""
+    try:
+        return ObjectId(value)
+    except (InvalidId, TypeError):
+        return None
+
+
+def _check_answer(payload: QuestionCreate) -> None:
+    if payload.options and payload.correct_answer not in payload.options:
+        raise ValueError("Correct answer must be one of the options")
 
 
 class ExamService:
@@ -17,12 +38,35 @@ class ExamService:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.db = db
 
+    # ---------- Helpers ----------
+
+    async def _owns_exam(self, exam_id: str, admin_id: str) -> bool:
+        oid = _oid(exam_id)
+        if oid is None:
+            return False
+        found = await self.db.exams.find_one({"_id": oid, "created_by": admin_id}, {"_id": 1})
+        return found is not None
+
+    async def _recalc_total_marks(self, exam_id: str) -> None:
+        oid = _oid(exam_id)
+        if oid is None:
+            return
+        rows = await self.db.questions.aggregate([
+            {"$match": {"exam_id": exam_id}},
+            {"$group": {"_id": None, "total": {"$sum": "$marks"}}},
+        ]).to_list(1)
+        total = rows[0]["total"] if rows else 0
+        await self.db.exams.update_one(
+            {"_id": oid},
+            {"$set": {"total_marks": total, "updated_at": datetime.utcnow()}},
+        )
+
     # ---------- Exams ----------
 
     async def create_exam(self, exam_data: ExamCreate, admin_id: str) -> str:
         now = datetime.utcnow()
         exam_doc = {
-            **exam_data.dict(),
+            **exam_data.model_dump(),
             "created_by": admin_id,
             "is_published": False,
             "created_at": now,
@@ -32,55 +76,49 @@ class ExamService:
         return str(result.inserted_id)
 
     async def get_exam_by_id(self, exam_id: str) -> Optional[Dict]:
-        return await self.db.exams.find_one({"_id": ObjectId(exam_id)})
+        oid = _oid(exam_id)
+        if oid is None:
+            return None
+        return await self.db.exams.find_one({"_id": oid})
 
     async def list_exams_by_admin(self, admin_id: str) -> List[Dict]:
         cursor = self.db.exams.find({"created_by": admin_id}).sort("created_at", -1)
         return [e async for e in cursor]
 
     async def update_exam(self, exam_id: str, admin_id: str, update_data: ExamUpdate) -> bool:
-        fields = {k: v for k, v in update_data.dict().items() if v is not None}
+        oid = _oid(exam_id)
+        if oid is None:
+            return False
+        fields = update_data.model_dump(exclude_none=True)
+        if not fields:
+            raise ValueError("Nothing to update")
         fields["updated_at"] = datetime.utcnow()
         result = await self.db.exams.update_one(
-            {"_id": ObjectId(exam_id), "created_by": admin_id},
+            {"_id": oid, "created_by": admin_id},
             {"$set": fields},
         )
         return result.matched_count > 0
-
-    async def update_question(self, question_id: str, payload: QuestionCreate) -> bool:
-        doc = payload.dict()
-        doc["question_type"] = getattr(doc["question_type"], "value", doc["question_type"])
-        result = await self.db.questions.update_one(
-            {"_id": ObjectId(question_id)},
-            {"$set": doc},
-        )
-        if result.matched_count == 0:
-            return False
-        await self._recalc_total_marks(payload.exam_id)
-        return True
 
     async def publish_exam(self, exam_id: str, admin_id: str) -> str:
         """
         Returns "ok", "not_found" or "no_questions".
         An exam with no questions can't be published.
         """
-        exam = await self.db.exams.find_one(
-            {"_id": ObjectId(exam_id), "created_by": admin_id}
-        )
-        if not exam:
+        if not await self._owns_exam(exam_id, admin_id):
             return "not_found"
         if await self.db.questions.count_documents({"exam_id": exam_id}) == 0:
             return "no_questions"
         await self.db.exams.update_one(
-            {"_id": ObjectId(exam_id)},
+            {"_id": _oid(exam_id)},
             {"$set": {"is_published": True, "updated_at": datetime.utcnow()}},
         )
         return "ok"
 
     async def delete_exam(self, exam_id: str, admin_id: str) -> bool:
-        result = await self.db.exams.delete_one(
-            {"_id": ObjectId(exam_id), "created_by": admin_id}
-        )
+        oid = _oid(exam_id)
+        if oid is None:
+            return False
+        result = await self.db.exams.delete_one({"_id": oid, "created_by": admin_id})
         if result.deleted_count > 0:
             await self.db.questions.delete_many({"exam_id": exam_id})
             return True
@@ -88,30 +126,45 @@ class ExamService:
 
     # ---------- Questions ----------
 
-    async def _recalc_total_marks(self, exam_id: str) -> None:
-        total = 0
-        async for q in self.db.questions.find({"exam_id": exam_id}, {"marks": 1}):
-            total += q.get("marks", 1)
-        await self.db.exams.update_one(
-            {"_id": ObjectId(exam_id)},
-            {"$set": {"total_marks": total, "updated_at": datetime.utcnow()}},
-        )
+    async def add_question(self, question_data: QuestionCreate, admin_id: str) -> Optional[str]:
+        """Returns the new question id, or None if the exam isn't found / isn't yours"""
+        if not await self._owns_exam(question_data.exam_id, admin_id):
+            return None
+        _check_answer(question_data)
 
-    async def add_question(self, question_data: QuestionCreate) -> str:
-        doc = question_data.dict()
-        doc["question_type"] = getattr(doc["question_type"], "value", doc["question_type"])
+        doc = question_data.model_dump(mode="json")
         doc["created_at"] = datetime.utcnow()
         result = await self.db.questions.insert_one(doc)
         await self._recalc_total_marks(question_data.exam_id)
         return str(result.inserted_id)
 
-    async def delete_question(self, question_id: str) -> Optional[str]:
-        """Returns the exam_id the question belonged to, or None if not found."""
-        q = await self.db.questions.find_one_and_delete({"_id": ObjectId(question_id)})
-        if not q:
-            return None
-        await self._recalc_total_marks(q["exam_id"])
-        return q["exam_id"]
+    async def update_question(self, question_id: str, admin_id: str, payload: QuestionCreate) -> bool:
+        """Returns False if the question isn't found / isn't yours"""
+        qid = _oid(question_id)
+        if qid is None:
+            return False
+        question = await self.db.questions.find_one({"_id": qid})
+        if not question or not await self._owns_exam(question["exam_id"], admin_id):
+            return False
+        _check_answer(payload)
+
+        doc = payload.model_dump(mode="json")
+        doc["exam_id"] = question["exam_id"]  # a question can't be moved to another exam
+        doc["updated_at"] = datetime.utcnow()
+        await self.db.questions.update_one({"_id": qid}, {"$set": doc})
+        await self._recalc_total_marks(question["exam_id"])
+        return True
+
+    async def delete_question(self, question_id: str, admin_id: str) -> bool:
+        qid = _oid(question_id)
+        if qid is None:
+            return False
+        question = await self.db.questions.find_one({"_id": qid})
+        if not question or not await self._owns_exam(question["exam_id"], admin_id):
+            return False
+        await self.db.questions.delete_one({"_id": qid})
+        await self._recalc_total_marks(question["exam_id"])
+        return True
 
     async def get_questions(self, exam_id: str, strip_answers: bool = False) -> List[Dict]:
         cursor = self.db.questions.find({"exam_id": exam_id}).sort("created_at", 1)
