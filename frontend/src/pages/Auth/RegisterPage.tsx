@@ -1,13 +1,15 @@
 /**
  * Register Page
+ * New accounts are always students. Admin access is granted by the server
+ * (ADMIN_EMAILS env var), never chosen by the user.
  */
 
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Input } from "../../components/common/Input";
+import { Input } from "../../components/common/input";
 import { Button } from "../../components/common/Button";
 import { Alert } from "../../components/common/Badge";
-import { useAuth } from "../../hooks/useAuth";
+import { useAuth } from "../../context/AuthContext";
 import { UserRole } from "../../types";
 import { getErrorMessage } from "../../utils";
 
@@ -20,7 +22,6 @@ export const RegisterPage: React.FC = () => {
     email: "",
     password: "",
     confirm_password: "",
-    role: UserRole.STUDENT,
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -41,8 +42,11 @@ export const RegisterPage: React.FC = () => {
     }
     setLoading(true);
     try {
-      await register(form);
-      navigate(form.role === UserRole.ADMIN ? "/admin/dashboard" : "/student/dashboard");
+      const created = await register({ ...form, role: UserRole.STUDENT });
+      navigate(
+        created.role === UserRole.ADMIN ? "/admin/dashboard" : "/student/dashboard",
+        { replace: true }
+      );
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -93,28 +97,8 @@ export const RegisterPage: React.FC = () => {
             placeholder="Repeat password"
             value={form.confirm_password}
             onChange={(e) => setForm({ ...form, confirm_password: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           />
-
-          {/* Role selector */}
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-gray-700">Register as</label>
-            <div className="grid grid-cols-2 gap-3">
-              {[UserRole.STUDENT, UserRole.ADMIN].map((role) => (
-                <button
-                  key={role}
-                  type="button"
-                  onClick={() => setForm({ ...form, role })}
-                  className={`py-2.5 rounded-lg border text-sm font-medium capitalize transition-colors ${
-                    form.role === role
-                      ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                      : "border-gray-200 text-gray-600 hover:border-gray-300"
-                  }`}
-                >
-                  {role}
-                </button>
-              ))}
-            </div>
-          </div>
 
           <Button onClick={handleSubmit} loading={loading} size="lg" className="w-full mt-1">
             Create Account

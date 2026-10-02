@@ -114,6 +114,7 @@ export const AdminDashboard: React.FC = () => {
                 exam={exam}
                 role={UserRole.ADMIN}
                 onEdit={(id) => navigate(`/admin/exams/${id}/edit`)}
+                onViewResults={(id) => navigate(`/admin/exams/${id}/results`)}
                 onDelete={handleDelete}
               />
             ))}

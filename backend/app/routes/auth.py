@@ -5,6 +5,7 @@ User registration, login, and token management
 
 from datetime import datetime, timezone
 import logging
+import os
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -17,8 +18,6 @@ from app.models.schemas import UserCreate, LoginRequest
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-import os
-
 ADMIN_EMAILS = {e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()}
 
 
@@ -26,7 +25,7 @@ ADMIN_EMAILS = {e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split("
 
 @router.post("/register", response_model=dict)
 async def register(user_data: UserCreate, db=Depends(get_db)):
-    """Register a new user"""
+    """Register a new user and log them in straight away"""
     try:
         users_col = db["users"]
         email = user_data.email.strip().lower()
@@ -39,23 +38,40 @@ async def register(user_data: UserCreate, db=Depends(get_db)):
                 detail="User already exists with this email"
             )
 
+        # Role is decided by the server only (ADMIN_EMAILS env var), never by the client
+        role = "admin" if email in ADMIN_EMAILS else "student"
+
         now = datetime.now(timezone.utc)
         user_doc = {
             "name": user_data.name,
             "email": email,
             "password_hash": SecurityUtils.hash_password(user_data.password),
-            "role": "admin" if email in ADMIN_EMAILS else "student",
+            "role": role,
             "is_active": True,
             "created_at": now,
             "updated_at": now,
         }
 
         result = await users_col.insert_one(user_doc)
+        user_id = str(result.inserted_id)
+
+        token = SecurityUtils.create_access_token({
+            "sub": user_id,
+            "email": email,
+            "role": role,
+        })
 
         return {
             "success": True,
             "message": "User registered successfully",
-            "user_id": str(result.inserted_id)
+            "access_token": token,
+            "token_type": "bearer",
+            "user": {
+                "id": user_id,
+                "name": user_data.name,
+                "email": email,
+                "role": role,
+            },
         }
 
     except HTTPException:

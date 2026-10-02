@@ -39,7 +39,6 @@ export interface User {
 export interface AuthState {
   user: User | null;
   access_token: string | null;
-  refresh_token: string | null;
   isAuthenticated: boolean;
 }
 
@@ -62,7 +61,6 @@ export interface AuthResponse {
   success: boolean;
   message: string;
   access_token: string;
-  refresh_token: string;
   token_type: string;
   user: User;
 }
@@ -130,11 +128,23 @@ export interface SessionSubmit {
   answers: StudentAnswer[];
 }
 
+export interface GradedAnswer {
+  question_id: string;
+  question_text?: string;
+  selected_answer: string;
+  correct_answer: string;
+  is_correct: boolean;
+  marks: number;
+  marks_awarded: number;
+}
+
 export interface ExamResult {
   _id: string;
   student_id: string;
   exam_id: string;
   exam_title?: string;
+  student_name?: string;   // admin results view only
+  student_email?: string;  // admin results view only
   status: SessionStatus;
   score: number;
   total_marks: number;
@@ -143,14 +153,6 @@ export interface ExamResult {
   started_at: string;
   submitted_at?: string;
   answers?: GradedAnswer[];
-}
-
-export interface GradedAnswer {
-  question_id: string;
-  selected_answer: string;
-  correct_answer: string;
-  is_correct: boolean;
-  marks_awarded: number;
 }
 
 // ============ Proctoring ============
@@ -170,6 +172,26 @@ export interface ProctoringData {
   tabSwitchCount: number;
   faceDetected?: boolean;
   lookingAtScreen?: boolean;
+}
+
+export interface FrameAnalysisPayload {
+  type: "frame_analysis";
+  face_detected: boolean;
+  looking_at_screen: boolean;
+  tab_active: boolean;
+}
+
+export interface ProctoringReport {
+  session_id: string;
+  total_events: number;
+  critical_incidents: number;
+  high_incidents: number;
+  medium_incidents: number;
+  low_incidents: number;
+  tab_switches: number;
+  suspicion_score: number;
+  recommendation: "approve" | "review" | "reject";
+  generated_at: string;
 }
 
 // ============ Dashboard Stats ============

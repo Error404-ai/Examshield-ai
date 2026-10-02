@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
-import api from "../services/api"; // change this path if your axios instance lives elsewhere
-import { User } from "../types";
+import api from "../services/api";
+import { User, RegisterRequest } from "../types";
 
 interface Credentials {
   email: string;
@@ -11,6 +11,7 @@ interface AuthCtx {
   user: User | null;
   isLoading: boolean;
   login: (credentials: Credentials) => Promise<User>;
+  register: (payload: RegisterRequest) => Promise<User>;
   logout: () => void;
 }
 
@@ -41,13 +42,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return res.data.user as User;
   }, []);
 
+  const register = useCallback(async (payload: RegisterRequest) => {
+    const res = await api.post("/auth/register", payload);
+    localStorage.setItem("token", res.data.access_token);
+    setUser(res.data.user);
+    return res.data.user as User;
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem("token");
     setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -16,8 +16,10 @@ import { RegisterPage } from "./pages/Auth/RegisterPage";
 import { StudentDashboard } from "./pages/Dashboard/StudentDashboard";
 import { AdminDashboard } from "./pages/Dashboard/AdminDashboard";
 import { CreateExamPage } from "./pages/Admin/CreateExamPage";
+import { ExamResultsPage } from "./pages/Admin/ExamResultsPage";
 import { ExamPage } from "./pages/Exam/ExamPage";
 import { ResultPage } from "./pages/Exam/ResultPage";
+import { StudentResultsPage } from "./pages/Exam/StudentResultsPage";
 
 const App: React.FC = () => {
   const { user, isLoading, logout } = useAuth();
@@ -69,7 +71,7 @@ const App: React.FC = () => {
               path="/student/results"
               element={
                 <ProtectedRoute user={user} isLoading={isLoading} requiredRole={UserRole.STUDENT}>
-                  <StudentDashboard />
+                  <StudentResultsPage />
                 </ProtectedRoute>
               }
             />
@@ -91,11 +93,22 @@ const App: React.FC = () => {
                 </ProtectedRoute>
               }
             />
-            <Route path="/admin/exams/:examId/edit" element={
-               <ProtectedRoute user={user} isLoading={isLoading} requiredRole={UserRole.ADMIN}>
-                   <CreateExamPage />
-               </ProtectedRoute>
-             } />
+            <Route
+              path="/admin/exams/:examId/edit"
+              element={
+                <ProtectedRoute user={user} isLoading={isLoading} requiredRole={UserRole.ADMIN}>
+                  <CreateExamPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/exams/:examId/results"
+              element={
+                <ProtectedRoute user={user} isLoading={isLoading} requiredRole={UserRole.ADMIN}>
+                  <ExamResultsPage />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Default redirect */}
             <Route

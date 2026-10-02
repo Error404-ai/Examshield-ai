@@ -28,6 +28,12 @@ export const ExamCard: React.FC<ExamCardProps> = ({
 }) => {
   const isAdmin = role === UserRole.ADMIN;
 
+  // A submitted or expired session can't be restarted (backend returns 400)
+  const finished =
+    !!exam.attempted &&
+    (exam.session_status === SessionStatus.SUBMITTED ||
+      exam.session_status === SessionStatus.EXPIRED);
+
   const statusBadge = () => {
     if (isAdmin) {
       return exam.is_published ? (
@@ -91,14 +97,10 @@ export const ExamCard: React.FC<ExamCardProps> = ({
             size="sm"
             variant="primary"
             onClick={() => onStart?.(exam._id)}
-            disabled={exam.attempted && exam.session_status === SessionStatus.SUBMITTED}
+            disabled={finished}
             className="w-full"
           >
-            {exam.attempted && exam.session_status === SessionStatus.SUBMITTED
-              ? "Already Submitted"
-              : exam.attempted
-              ? "Resume Exam"
-              : "Start Exam"}
+            {finished ? "Already Submitted" : exam.attempted ? "Resume Exam" : "Start Exam"}
           </Button>
         )}
       </div>
