@@ -28,7 +28,7 @@ export const Input: React.FC<InputProps> = ({
       {label && (
         <label
           htmlFor={inputId}
-          className="text-sm font-medium text-slate-300"
+          className="text-sm font-medium text-gray-700"
         >
           {label}
         </label>
@@ -53,8 +53,8 @@ export const Input: React.FC<InputProps> = ({
           <input
             id={inputId}
             className={clsx(
-              "w-full rounded-xl py-2.5 text-sm text-slate-100 placeholder:text-slate-600",
-              "bg-white/[0.04] border border-white/[0.09]",
+              "w-full rounded-xl py-2.5 text-sm text-gray-900 placeholder:text-gray-400",
+              "bg-white border border-gray-300",
               "transition-colors duration-150",
               "focus:outline-none focus:border-violet/50",
               "disabled:opacity-50 disabled:cursor-not-allowed",
