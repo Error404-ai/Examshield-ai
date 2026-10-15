@@ -9,37 +9,9 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { FaceDetector, FilesetResolver } from "@mediapipe/tasks-vision";
 import { AlertSeverity, BehaviorAlert } from "../types";
 import { proctoringService, ProctoringEventType } from "../services/proctoringService";
-
-declare const require: (id: string) => any;
-
-type FaceDetectorLike = {
-  detectForVideo(video: HTMLVideoElement, time: number): { detections: any[] };
-  close(): void;
-};
-
-type FaceDetectorCtorLike = {
-  createFromOptions(fileset: any, options: any): Promise<FaceDetectorLike>;
-};
-
-type VisionTasksModule = {
-  FaceDetector: FaceDetectorCtorLike;
-  FilesetResolver: {
-    forVisionTasks(url: string): Promise<any>;
-  };
-};
-
-const mediaPipeVision = (() => {
-  try {
-    return require("@mediapipe/tasks-vision") as VisionTasksModule;
-  } catch {
-    return null;
-  }
-})();
-
-const FaceDetector = (mediaPipeVision?.FaceDetector ?? null) as FaceDetectorCtorLike | null;
-const FilesetResolver = (mediaPipeVision?.FilesetResolver ?? null) as VisionTasksModule["FilesetResolver"] | null;
 
 // Pinned to the same version as the npm package
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -87,7 +59,7 @@ export function useProctoring(sessionId: string, onTerminate: () => void): Proct
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const detectorRef = useRef<FaceDetectorLike | null>(null);
+  const detectorRef = useRef<FaceDetector | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const runIdRef = useRef(0); // bumps on every start/stop so stale async work can bail out
   const strikesRef = useRef<Record<VisionIssue, number>>({ no_face: 0, multiple_faces: 0, looking_away: 0 });
@@ -235,12 +207,9 @@ export function useProctoring(sessionId: string, onTerminate: () => void): Proct
       }
     }
 
-    // Load the face detector (model files come from a CDN)
-    let detector: FaceDetectorLike | null = null;
+    // Load the face detector (WASM + model files come from a CDN)
+    let detector: FaceDetector | null = null;
     try {
-      if (!FilesetResolver || !FaceDetector) {
-        throw new Error("MediaPipe vision tasks are unavailable");
-      }
       const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
       detector = await FaceDetector.createFromOptions(fileset, {
         baseOptions: { modelAssetPath: MODEL_URL },
