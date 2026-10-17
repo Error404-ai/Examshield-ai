@@ -1,7 +1,7 @@
 """
 AI Service
-Generates draft multiple-choice questions with the Anthropic Messages API.
-Set ANTHROPIC_API_KEY (and optionally ANTHROPIC_MODEL) in the environment.
+Generates draft multiple-choice questions with the Google Gemini API.
+Set GEMINI_API_KEY (and optionally GEMINI_MODEL) in the environment.
 """
 
 import json
@@ -14,9 +14,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-API_URL = "https://api.anthropic.com/v1/messages"
-API_VERSION = "2023-06-01"
-DEFAULT_MODEL = "claude-sonnet-5-5"
+API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class AIUnavailable(Exception):
@@ -89,8 +88,8 @@ async def generate_questions(
     difficulty: str,
     context: str = "",
 ) -> List[Dict]:
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    model = os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
     if not api_key:
         raise AIUnavailable()
 
@@ -99,30 +98,34 @@ async def generate_questions(
         prompt += f"\n\nStudy material:\n<material>\n{context.strip()}\n</material>"
 
     payload = {
-        "model": model,
-        "max_tokens": min(8000, 1000 + count * 350),
-        "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": prompt}],
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "maxOutputTokens": min(8000, 1000 + count * 350),
+            "temperature": 0.7,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
     }
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": API_VERSION,
-        "content-type": "application/json",
-    }
+    headers = {"x-goog-api-key": api_key, "content-type": "application/json"}
+    url = f"{API_BASE}/{model}:generateContent"
 
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(API_URL, headers=headers, json=payload)
+            resp = await client.post(url, headers=headers, json=payload)
     except httpx.HTTPError as exc:
         logger.error(f"AI request failed: {exc}")
         raise AIGenerationError("Could not reach the AI service. Try again in a moment.")
 
+    if resp.status_code == 429:
+        raise AIGenerationError("AI rate limit reached. Wait a minute and try again.")
     if resp.status_code != 200:
         logger.error(f"AI service error {resp.status_code}: {resp.text[:300]}")
         raise AIGenerationError(f"The AI service returned an error (status {resp.status_code}).")
 
-    blocks = resp.json().get("content", [])
-    text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+    candidates = resp.json().get("candidates") or []
+    parts = (candidates[0].get("content", {}).get("parts", [])) if candidates else []
+    text = "".join(p.get("text", "") for p in parts)
 
     questions = _parse(text)
     if not questions:
