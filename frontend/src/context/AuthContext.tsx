@@ -23,7 +23,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // On page load, restore the session if a token exists
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const token = sessionStorage.getItem("token");
     if (!token) {
       setIsLoading(false);
       return;
@@ -31,26 +31,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     api
       .get("/auth/me")
       .then((res) => setUser(res.data))
-      .catch(() => localStorage.removeItem("token"))
+      .catch(() => sessionStorage.removeItem("token"))
       .finally(() => setIsLoading(false));
   }, []);
 
   const login = useCallback(async (credentials: Credentials) => {
     const res = await api.post("/auth/login", credentials);
-    localStorage.setItem("token", res.data.access_token);
+    sessionStorage.setItem("token", res.data.access_token);
     setUser(res.data.user);
     return res.data.user as User;
   }, []);
 
   const register = useCallback(async (payload: RegisterRequest) => {
     const res = await api.post("/auth/register", payload);
-    localStorage.setItem("token", res.data.access_token);
+    sessionStorage.setItem("token", res.data.access_token);
     setUser(res.data.user);
     return res.data.user as User;
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem("token");
+    sessionStorage.removeItem("token");
     setUser(null);
   }, []);
 

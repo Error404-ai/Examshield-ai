@@ -28,10 +28,16 @@ export const ExamCard: React.FC<ExamCardProps> = ({
 }) => {
   const isAdmin = role === UserRole.ADMIN;
 
+  // A submitted or expired session can't be restarted (backend returns 400)
+  const finished =
+    !!exam.attempted &&
+    (exam.session_status === SessionStatus.SUBMITTED ||
+      exam.session_status === SessionStatus.EXPIRED);
+
   const statusBadge = () => {
     if (isAdmin) {
       return exam.is_published ? (
-        <Badge variant="success" dot>Published</Badge>
+        <Badge variant="success">Published</Badge>
       ) : (
         <Badge variant="neutral">Draft</Badge>
       );
@@ -45,34 +51,30 @@ export const ExamCard: React.FC<ExamCardProps> = ({
           : "warning";
       return <Badge variant={color}>{getSessionStatusLabel(exam.session_status!)}</Badge>;
     }
-    return <Badge variant="info" dot>Available</Badge>;
+    return <Badge variant="info">Available</Badge>;
   };
 
-  const submitted = exam.attempted && exam.session_status === SessionStatus.SUBMITTED;
+  const tile = (label: string, value: string | number) => (
+    <div className="rounded-xl bg-white/5 border border-white/10 py-2">
+      <p className="text-xs text-slate-400">{label}</p>
+      <p className="font-semibold text-slate-100 text-sm">{value}</p>
+    </div>
+  );
 
   return (
-    <div className="glass card-hover flex flex-col gap-4 rounded-2xl p-5">
+    <div className="glass card-hover rounded-2xl p-5 flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="font-display text-base font-semibold text-slate-100">{exam.title}</h3>
-          <p className="mt-0.5 line-clamp-2 text-sm text-slate-400">{exam.description}</p>
+        <div>
+          <h3 className="font-semibold text-slate-100 text-base">{exam.title}</h3>
+          <p className="text-sm text-slate-400 mt-0.5 line-clamp-2">{exam.description}</p>
         </div>
-        <div className="shrink-0">{statusBadge()}</div>
+        {statusBadge()}
       </div>
 
       <div className="grid grid-cols-3 gap-3 text-center">
-        <div className="rounded-xl bg-white/5 py-2">
-          <p className="text-xs text-slate-500">Duration</p>
-          <p className="text-sm font-semibold text-slate-100">{formatDuration(exam.duration)}</p>
-        </div>
-        <div className="rounded-xl bg-white/5 py-2">
-          <p className="text-xs text-slate-500">Total Marks</p>
-          <p className="text-sm font-semibold text-slate-100">{exam.total_marks}</p>
-        </div>
-        <div className="rounded-xl bg-white/5 py-2">
-          <p className="text-xs text-slate-500">Passing</p>
-          <p className="text-sm font-semibold text-slate-100">{exam.passing_marks}</p>
-        </div>
+        {tile("Duration", formatDuration(exam.duration))}
+        {tile("Total Marks", exam.total_marks)}
+        {tile("Passing", exam.passing_marks)}
       </div>
 
       <div className="flex gap-2 pt-1">
@@ -93,10 +95,10 @@ export const ExamCard: React.FC<ExamCardProps> = ({
             size="sm"
             variant="primary"
             onClick={() => onStart?.(exam._id)}
-            disabled={submitted}
+            disabled={finished}
             className="w-full"
           >
-            {submitted ? "Already Submitted" : exam.attempted ? "Resume Exam" : "Start Exam"}
+            {finished ? "Already Submitted" : exam.attempted ? "Resume Exam" : "Start Exam"}
           </Button>
         )}
       </div>
