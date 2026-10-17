@@ -5,7 +5,9 @@ Data model: exams / questions / sessions as separate collections.
 """
 
 import logging
+import time
 from datetime import datetime
+from typing import Dict, List, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -14,11 +16,16 @@ from app.core.database import get_db
 from app.core.security import require_role
 from app.core.utils import oid, clean
 from app.models.schemas import ExamUpdate, QuestionCreate, SessionStatus
+from app.services.ai_service import AIGenerationError, AIUnavailable, generate_questions
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 admin_only = require_role("admin")
+
+# Simple in-memory limit on AI generations per admin
+GEN_LIMIT_PER_HOUR = 20
+_gen_calls: Dict[str, List[float]] = {}
 
 
 class ExamIn(BaseModel):
@@ -28,6 +35,25 @@ class ExamIn(BaseModel):
     duration: int = Field(..., gt=0, le=300)
     total_marks: int = Field(0, ge=0)
     passing_marks: int = Field(0, ge=0)
+
+
+class GenerateIn(BaseModel):
+    topic: str = Field(..., min_length=3, max_length=200)
+    count: int = Field(5, ge=1, le=15)
+    difficulty: Literal["easy", "medium", "hard"] = "medium"
+    context: str = Field("", max_length=6000)
+
+
+def _check_gen_rate(admin_id: str) -> None:
+    now = time.time()
+    recent = [t for t in _gen_calls.get(admin_id, []) if now - t < 3600]
+    if len(recent) >= GEN_LIMIT_PER_HOUR:
+        raise HTTPException(
+            status_code=429,
+            detail="You've reached the hourly limit for AI generation. Try again later.",
+        )
+    recent.append(now)
+    _gen_calls[admin_id] = recent
 
 
 async def _owned_exam(db, exam_id: str, admin_id: str) -> dict:
@@ -137,6 +163,28 @@ async def publish_exam(exam_id: str, admin=Depends(admin_only), db=Depends(get_d
 
 # ─── Questions ───────────────────────────────────────────────────────────────
 
+@router.post("/questions/generate")
+async def generate_ai_questions(body: GenerateIn, admin=Depends(admin_only)):
+    """Draft multiple-choice questions with AI. Nothing is saved; the admin reviews first."""
+    _check_gen_rate(admin["user_id"])
+    try:
+        questions = await generate_questions(
+            topic=body.topic.strip(),
+            count=body.count,
+            difficulty=body.difficulty,
+            context=body.context,
+        )
+    except AIUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail="AI generation isn't configured on the server (missing ANTHROPIC_API_KEY).",
+        )
+    except AIGenerationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    return {"success": True, "questions": questions}
+
+
 @router.post("/questions")
 async def add_question(body: QuestionCreate, admin=Depends(admin_only), db=Depends(get_db)):
     await _owned_exam(db, body.exam_id, admin["user_id"])
@@ -148,6 +196,7 @@ async def add_question(body: QuestionCreate, admin=Depends(admin_only), db=Depen
     result = await db.questions.insert_one(doc)
     await _sync_total_marks(db, body.exam_id)
     return {"success": True, "question_id": str(result.inserted_id)}
+
 
 @router.put("/questions/{question_id}")
 async def update_question(question_id: str, body: QuestionCreate, admin=Depends(admin_only), db=Depends(get_db)):
@@ -209,4 +258,79 @@ async def exam_results(exam_id: str, admin=Depends(admin_only), db=Depends(get_d
         "failed": total - passed,
         "average_score": round(avg, 2),
         "results": results,
+    }
+
+
+# ─── Analytics ───────────────────────────────────────────────────────────────
+
+@router.get("/exams/{exam_id}/analytics")
+async def exam_analytics(exam_id: str, admin=Depends(admin_only), db=Depends(get_db)):
+    exam = await _owned_exam(db, exam_id, admin["user_id"])
+    done = [SessionStatus.SUBMITTED.value, SessionStatus.EXPIRED.value]
+    sessions = await db.sessions.find({"exam_id": exam_id, "status": {"$in": done}}).to_list(None)
+    questions = await db.questions.find({"exam_id": exam_id}).sort("created_at", 1).to_list(None)
+
+    attempts = len(sessions)
+    percentages = [s.get("percentage", 0) for s in sessions]
+    passed = sum(1 for s in sessions if s.get("passed"))
+
+    # Score distribution in 10% buckets
+    buckets = [0] * 10
+    for p in percentages:
+        buckets[min(int(p // 10), 9)] += 1
+    distribution = [
+        {"label": f"{i * 10}-{i * 10 + 10}", "count": buckets[i]} for i in range(10)
+    ]
+
+    # Time taken
+    minutes = [
+        (s["submitted_at"] - s["started_at"]).total_seconds() / 60
+        for s in sessions
+        if isinstance(s.get("submitted_at"), datetime) and isinstance(s.get("started_at"), datetime)
+    ]
+
+    # Per-question performance
+    stats = {str(q["_id"]): {"correct": 0, "answered": 0} for q in questions}
+    for s in sessions:
+        for a in s.get("answers", []):
+            st = stats.get(a.get("question_id"))
+            if st is None:
+                continue
+            if a.get("selected_answer"):
+                st["answered"] += 1
+            if a.get("is_correct"):
+                st["correct"] += 1
+
+    question_rows = []
+    for q in questions:
+        st = stats[str(q["_id"])]
+        question_rows.append({
+            "question_id": str(q["_id"]),
+            "question_text": q.get("question_text", ""),
+            "marks": q.get("marks", 1),
+            "correct_pct": round(st["correct"] / attempts * 100, 1) if attempts else 0,
+            "skipped": attempts - st["answered"],
+        })
+    question_rows.sort(key=lambda r: r["correct_pct"])  # hardest first
+
+    flagged = sum(
+        1
+        for s in sessions
+        if any(a.get("severity") in ("high", "critical") for a in s.get("proctoring_alerts", []))
+    )
+
+    return {
+        "success": True,
+        "exam_title": exam["title"],
+        "attempts": attempts,
+        "passed": passed,
+        "failed": attempts - passed,
+        "pass_rate": round(passed / attempts * 100, 1) if attempts else 0,
+        "average_score": round(sum(percentages) / attempts, 1) if attempts else 0,
+        "highest": round(max(percentages), 1) if attempts else 0,
+        "lowest": round(min(percentages), 1) if attempts else 0,
+        "average_minutes": round(sum(minutes) / len(minutes), 1) if minutes else 0,
+        "flagged_sessions": flagged,
+        "distribution": distribution,
+        "questions": question_rows,
     }

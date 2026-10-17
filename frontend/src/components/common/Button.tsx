@@ -19,7 +19,7 @@ const variantClasses: Record<Variant, string> = {
   primary:
     "bg-violet text-white hover:bg-violet-400 hover:shadow-glow-violet border border-violet/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none",
   secondary:
-    "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 disabled:opacity-40",
+    "bg-white/5 text-slate-200 border border-white/10 hover:bg-white/10 hover:border-white/20 disabled:opacity-40 disabled:cursor-not-allowed",
   danger:
     "bg-rose/90 text-white hover:bg-rose hover:shadow-glow-rose border border-rose/30 disabled:opacity-40",
   ghost:
@@ -62,17 +62,14 @@ export const Button: React.FC<ButtonProps> = ({
         "relative inline-flex items-center justify-center rounded-xl font-medium",
         "transition-all duration-200 focus:outline-none",
         "focus-visible:ring-2 focus-visible:ring-violet/50 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900",
+        glow && "shadow-glow-violet",
         variantClasses[variant],
         sizeClasses[size],
         className
       )}
     >
       {loading ? (
-        <svg
-          className="h-4 w-4 animate-spin"
-          viewBox="0 0 24 24"
-          fill="none"
-        >
+        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
           <circle
             className="opacity-25"
             cx="12"
@@ -81,19 +78,13 @@ export const Button: React.FC<ButtonProps> = ({
             stroke="currentColor"
             strokeWidth="3"
           />
-          <path
-            className="opacity-75"
-            fill="currentColor"
-            d="M4 12a8 8 0 018-8v8H4z"
-          />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
         </svg>
       ) : (
         icon && <span className="shrink-0">{icon}</span>
       )}
       <span>{children}</span>
-      {iconRight && !loading && (
-        <span className="shrink-0">{iconRight}</span>
-      )}
+      {iconRight && !loading && <span className="shrink-0">{iconRight}</span>}
     </motion.button>
   );
 };

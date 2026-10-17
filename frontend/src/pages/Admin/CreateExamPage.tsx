@@ -27,7 +27,9 @@ const emptyQuestion = (): DraftQuestion => ({
 });
 
 const inputClass =
-  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+  "w-full rounded-xl border border-white/10 bg-navy-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-violet/60 focus:outline-none";
+
+const labelClass = "mb-1 block text-sm font-medium text-slate-300";
 
 export const CreateExamPage: React.FC = () => {
   const navigate = useNavigate();
@@ -182,63 +184,96 @@ export const CreateExamPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-[50vh] flex items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-violet border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div className="px-6 py-8 max-w-3xl mx-auto">
-      <h1 className="text-3xl font-bold text-gray-900">{isEdit ? "Edit Exam" : "Create Exam"}</h1>
-      <p className="text-gray-500 mt-1 mb-6">
+    <div className="mx-auto max-w-3xl px-6 py-8">
+      <h1 className="font-display text-3xl font-bold text-slate-50">{isEdit ? "Edit Exam" : "Create Exam"}</h1>
+      <p className="mb-6 mt-1 text-slate-400">
         {isEdit
           ? "Update details, edit or remove questions, or add new ones"
           : "Set up the exam details and add multiple-choice questions"}
       </p>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-          <p className="text-red-800 text-sm">{error}</p>
+        <div className="glass-rose mb-6 rounded-xl p-4">
+          <p className="text-sm text-rose-300">{error}</p>
         </div>
       )}
 
       {/* Details */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 flex flex-col gap-4">
+      <div className="glass mb-6 flex flex-col gap-4 rounded-2xl p-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-          <input className={inputClass} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Data Structures Midterm" />
+          <label className={labelClass}>Title</label>
+          <input
+            className={inputClass}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. Data Structures Midterm"
+          />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-          <textarea className={inputClass} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <label className={labelClass}>Description</label>
+          <textarea
+            className={inputClass}
+            rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Duration (minutes)</label>
-            <input type="number" min={1} className={inputClass} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
+            <label className={labelClass}>Duration (minutes)</label>
+            <input
+              type="number"
+              min={1}
+              className={inputClass}
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Passing percentage</label>
-            <input type="number" min={0} max={100} className={inputClass} value={passingPct} onChange={(e) => setPassingPct(Number(e.target.value))} />
+            <label className={labelClass}>Passing percentage</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              className={inputClass}
+              value={passingPct}
+              onChange={(e) => setPassingPct(Number(e.target.value))}
+            />
           </div>
         </div>
       </div>
 
       {/* Questions */}
-      <h2 className="text-xl font-bold text-gray-900 mb-3">Questions ({questions.length})</h2>
-      <div className="flex flex-col gap-4 mb-4">
+      <h2 className="mb-3 font-display text-xl font-bold text-slate-100">Questions ({questions.length})</h2>
+      <div className="mb-4 flex flex-col gap-4">
         {questions.map((q, qi) => (
-          <div key={q.id ?? `new-${qi}`} className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3">
+          <div key={q.id ?? `new-${qi}`} className="glass flex flex-col gap-3 rounded-2xl p-5">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-gray-700">Question {qi + 1}</p>
+              <p className="text-sm font-semibold text-slate-200">Question {qi + 1}</p>
               {questions.length > 1 && (
-                <button type="button" className="text-sm text-red-600 hover:underline" onClick={() => removeQuestion(qi)}>
+                <button
+                  type="button"
+                  className="text-sm text-rose-400 hover:text-rose-300"
+                  onClick={() => removeQuestion(qi)}
+                >
                   Remove
                 </button>
               )}
             </div>
-            <textarea className={inputClass} rows={2} placeholder="Question text" value={q.text} onChange={(e) => updateQuestion(qi, { text: e.target.value })} />
+            <textarea
+              className={inputClass}
+              rows={2}
+              placeholder="Question text"
+              value={q.text}
+              onChange={(e) => updateQuestion(qi, { text: e.target.value })}
+            />
             {q.options.map((opt, oi) => (
               <div key={oi} className="flex items-center gap-2">
                 <input
@@ -247,20 +282,26 @@ export const CreateExamPage: React.FC = () => {
                   checked={q.correct === oi}
                   onChange={() => updateQuestion(qi, { correct: oi })}
                   title="Mark as correct answer"
+                  className="accent-violet"
                 />
-                <input className={inputClass} placeholder={`Option ${oi + 1}`} value={opt} onChange={(e) => updateOption(qi, oi, e.target.value)} />
+                <input
+                  className={inputClass}
+                  placeholder={`Option ${oi + 1}`}
+                  value={opt}
+                  onChange={(e) => updateOption(qi, oi, e.target.value)}
+                />
               </div>
             ))}
             <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Marks</label>
+              <label className="text-sm text-slate-400">Marks</label>
               <input
                 type="number"
                 min={1}
-                className="w-20 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+                className="w-20 rounded-xl border border-white/10 bg-navy-800 px-3 py-2 text-sm text-slate-100 focus:border-violet/60 focus:outline-none"
                 value={q.marks}
                 onChange={(e) => updateQuestion(qi, { marks: Number(e.target.value) })}
               />
-              <span className="text-xs text-gray-400 ml-2">Select the radio button next to the correct option</span>
+              <span className="ml-2 text-xs text-slate-500">Select the radio button next to the correct option</span>
             </div>
           </div>
         ))}
@@ -268,25 +309,34 @@ export const CreateExamPage: React.FC = () => {
 
       <button
         type="button"
-        className="mb-8 rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+        className="mb-8 rounded-xl border border-dashed border-white/20 px-4 py-2 text-sm text-slate-400 transition-colors hover:bg-white/5 hover:text-slate-200"
         onClick={() => setQuestions((qs) => [...qs, emptyQuestion()])}
       >
         + Add question
       </button>
 
       <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2 text-sm text-gray-700">
-          <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} />
+        <label className="flex items-center gap-2 text-sm text-slate-300">
+          <input
+            type="checkbox"
+            checked={publish}
+            onChange={(e) => setPublish(e.target.checked)}
+            className="accent-violet"
+          />
           {isEdit ? "Published (students can see it)" : "Publish immediately (students can see it)"}
         </label>
         <div className="flex gap-3">
-          <button type="button" className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700" onClick={() => navigate("/admin/dashboard")}>
+          <button
+            type="button"
+            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition-colors hover:bg-white/10"
+            onClick={() => navigate("/admin/dashboard")}
+          >
             Cancel
           </button>
           <button
             type="button"
             disabled={saving}
-            className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className="rounded-xl bg-violet px-5 py-2 text-sm font-medium text-white transition-all hover:bg-violet-400 hover:shadow-glow-violet disabled:opacity-50"
             onClick={handleSubmit}
           >
             {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Exam"}

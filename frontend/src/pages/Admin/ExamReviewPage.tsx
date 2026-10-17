@@ -1,7 +1,7 @@
 /**
  * Exam Review Page (admin)
- * Results + AI proctoring review for one exam.
- * Auto-refreshes so an exam can be watched live.
+ * Two tabs: proctoring review of sessions, and exam analytics.
+ * Sessions auto-refresh so an exam can be watched live.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import {
   SessionAlertsDetail,
   Recommendation,
 } from "../../services/proctoringService";
+import { ExamAnalyticsPanel } from "../../components/admin/ExamAnalyticsPanel";
 import { SessionStatus } from "../../types";
 import {
   formatDateTime,
@@ -40,23 +41,36 @@ const recLabel: Record<Recommendation, string> = {
 };
 
 const barColor: Record<Recommendation, string> = {
-  approve: "bg-green-500",
-  review: "bg-yellow-500",
-  reject: "bg-red-500",
+  approve: "bg-emerald",
+  review: "bg-amber",
+  reject: "bg-rose",
 };
 
 const RiskBadge: React.FC<{ rec: Recommendation }> = ({ rec }) => (
-  <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${getRecommendationColor(rec)}`}>
+  <span
+    className={`inline-block w-fit rounded-full px-2.5 py-0.5 text-xs font-medium ${getRecommendationColor(rec)}`}
+  >
     {recLabel[rec]}
   </span>
 );
 
 const RiskBar: React.FC<{ score: number; rec: Recommendation }> = ({ score, rec }) => (
   <div className="flex items-center gap-2">
-    <div className="h-2 w-24 rounded-full bg-gray-200 overflow-hidden">
+    <div className="h-2 w-24 overflow-hidden rounded-full bg-white/10">
       <div className={`h-full ${barColor[rec]}`} style={{ width: `${Math.max(score, 3)}%` }} />
     </div>
-    <span className="text-xs tabular-nums text-gray-600">{score}</span>
+    <span className="text-xs tabular-nums text-slate-400">{score}</span>
+  </div>
+);
+
+const SummaryCard: React.FC<{ label: string; value: string | number; color: string }> = ({
+  label,
+  value,
+  color,
+}) => (
+  <div className="glass rounded-2xl p-5">
+    <p className="text-sm text-slate-400">{label}</p>
+    <p className={`mt-1 font-display text-3xl font-bold ${color}`}>{value}</p>
   </div>
 );
 
@@ -64,6 +78,7 @@ export const ExamReviewPage: React.FC = () => {
   const { examId } = useParams<{ examId: string }>();
   const navigate = useNavigate();
 
+  const [tab, setTab] = useState<"sessions" | "analytics">("sessions");
   const [examTitle, setExamTitle] = useState("");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,180 +148,199 @@ export const ExamReviewPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-[50vh] flex items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-violet border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div className="px-6 py-8 max-w-6xl mx-auto">
+    <div className="mx-auto max-w-6xl px-6 py-8">
       <button
         onClick={() => navigate("/admin/dashboard")}
-        className="text-sm text-indigo-600 hover:underline mb-3"
+        className="mb-3 text-sm text-violet-400 hover:text-violet-300"
       >
         ← Back to dashboard
       </button>
-      <h1 className="text-3xl font-bold text-gray-900">{examTitle || "Exam"}</h1>
-      <p className="text-gray-500 mt-1 mb-6">Results and AI proctoring review (refreshes every 15 seconds)</p>
+      <h1 className="font-display text-3xl font-bold text-slate-50">{examTitle || "Exam"}</h1>
+      <p className="mb-6 mt-1 text-slate-400">Results, AI proctoring review and exam analytics</p>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-          <p className="text-red-800 text-sm">{error}</p>
+        <div className="glass-rose mb-6 rounded-xl p-4">
+          <p className="text-sm text-rose-300">{error}</p>
         </div>
       )}
 
-      {/* Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
-          <p className="text-sm text-gray-600">Sessions</p>
-          <p className="text-3xl font-bold text-indigo-600 mt-1">{sessions.length}</p>
-        </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
-          <p className="text-sm text-gray-600">Flagged for review</p>
-          <p className="text-3xl font-bold text-red-600 mt-1">{flagged}</p>
-        </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
-          <p className="text-sm text-gray-600">Taking exam now</p>
-          <p className="text-3xl font-bold text-green-600 mt-1">{live}</p>
-        </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
-          <p className="text-sm text-gray-600">Average score</p>
-          <p className="text-3xl font-bold text-blue-600 mt-1">{avgPct.toFixed(1)}%</p>
-        </div>
-      </div>
-
-      {/* Filter */}
-      <div className="flex gap-2 mb-3">
-        {(["all", "flagged"] as const).map((f) => (
+      {/* Tabs */}
+      <div className="mb-6 flex gap-2 border-b border-white/10">
+        {(
+          [
+            ["sessions", "Sessions & proctoring"],
+            ["analytics", "Analytics"],
+          ] as const
+        ).map(([key, label]) => (
           <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium ${
-              filter === f ? "bg-indigo-50 text-indigo-700" : "text-gray-600 hover:bg-gray-100"
+            key={key}
+            onClick={() => setTab(key)}
+            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+              tab === key
+                ? "border-violet text-violet-300"
+                : "border-transparent text-slate-400 hover:text-slate-200"
             }`}
           >
-            {f === "all" ? "All sessions" : "Flagged only"}
+            {label}
           </button>
         ))}
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto mb-6">
-        {visible.length === 0 ? (
-          <p className="p-8 text-center text-gray-500 text-sm">
-            {sessions.length === 0 ? "No students have started this exam yet." : "No flagged sessions."}
-          </p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-4 py-3">Student</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Score</th>
-                <th className="px-4 py-3">Proctoring risk</th>
-                <th className="px-4 py-3">Alerts</th>
-                <th className="px-4 py-3">Submitted</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((s) => (
-                <tr
-                  key={s.session_id}
-                  onClick={() => setSelectedId(s.session_id === selectedId ? null : s.session_id)}
-                  className={`border-t border-gray-100 cursor-pointer hover:bg-gray-50 ${
-                    s.session_id === selectedId ? "bg-indigo-50/60" : ""
-                  }`}
-                >
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-gray-900">{s.student_name}</p>
-                    <p className="text-xs text-gray-500">{s.student_email}</p>
-                  </td>
-                  <td className="px-4 py-3 text-gray-700">
-                    {getSessionStatusLabel(s.status as SessionStatus)}
-                  </td>
-                  <td className="px-4 py-3 text-gray-700">
-                    {s.percentage !== null ? (
-                      <>
-                        {s.score}/{s.total_marks}{" "}
-                        <span className="text-xs text-gray-500">({s.percentage.toFixed(1)}%)</span>
-                      </>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
-                      <RiskBar score={s.suspicion_score} rec={s.recommendation} />
-                      <RiskBadge rec={s.recommendation} />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-gray-700 tabular-nums">{s.total_alerts}</td>
-                  <td className="px-4 py-3 text-gray-500 text-xs">
-                    {s.submitted_at ? formatDateTime(s.submitted_at) : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {tab === "analytics" && examId && <ExamAnalyticsPanel examId={examId} />}
 
-      {/* Detail */}
-      {selectedId && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          {detailLoading || !detail ? (
-            <div className="flex justify-center py-6">
-              <div className="h-6 w-6 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900">{detail.student_name}</h2>
-                  <p className="text-sm text-gray-500">{detail.student_email}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <RiskBar score={detail.suspicion_score} rec={detail.recommendation} />
-                  <RiskBadge rec={detail.recommendation} />
-                </div>
-              </div>
+      {tab === "sessions" && (
+        <>
+          {/* Summary */}
+          <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+            <SummaryCard label="Sessions" value={sessions.length} color="text-violet-300" />
+            <SummaryCard label="Flagged for review" value={flagged} color="text-rose-400" />
+            <SummaryCard label="Taking exam now" value={live} color="text-emerald-400" />
+            <SummaryCard label="Average score" value={`${avgPct.toFixed(1)}%`} color="text-cyan-400" />
+          </div>
 
-              {Object.keys(detail.counts).length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-5">
-                  {Object.entries(detail.counts).map(([type, n]) => (
-                    <span key={type} className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
-                      {typeLabel[type] ?? type}: <strong>{n}</strong>
-                    </span>
-                  ))}
-                </div>
-              )}
+          {/* Filter */}
+          <div className="mb-3 flex items-center gap-2">
+            {(["all", "flagged"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  filter === f
+                    ? "bg-violet/15 text-violet-300"
+                    : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+                }`}
+              >
+                {f === "all" ? "All sessions" : "Flagged only"}
+              </button>
+            ))}
+            <span className="ml-auto text-xs text-slate-500">Refreshes every 15 seconds</span>
+          </div>
 
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">Timeline</h3>
-              {detail.alerts.length === 0 ? (
-                <p className="text-sm text-gray-500">No suspicious activity recorded.</p>
-              ) : (
-                <div className="flex flex-col gap-1.5 max-h-96 overflow-y-auto">
-                  {detail.alerts.map((a, i) => (
-                    <div
-                      key={i}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${getAlertSeverityColor(
-                        a.severity
-                      )}`}
+          {/* Table */}
+          <div className="glass mb-6 overflow-x-auto rounded-2xl">
+            {visible.length === 0 ? (
+              <p className="p-8 text-center text-sm text-slate-400">
+                {sessions.length === 0 ? "No students have started this exam yet." : "No flagged sessions."}
+              </p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-white/5 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Student</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Score</th>
+                    <th className="px-4 py-3">Proctoring risk</th>
+                    <th className="px-4 py-3">Alerts</th>
+                    <th className="px-4 py-3">Submitted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((s) => (
+                    <tr
+                      key={s.session_id}
+                      onClick={() => setSelectedId(s.session_id === selectedId ? null : s.session_id)}
+                      className={`cursor-pointer border-t border-white/5 transition-colors hover:bg-white/5 ${
+                        s.session_id === selectedId ? "bg-violet/10" : ""
+                      }`}
                     >
-                      <span className="text-xs tabular-nums opacity-70 shrink-0">
-                        {new Date(a.timestamp).toLocaleTimeString("en-IN")}
-                      </span>
-                      <span className="font-medium shrink-0">{typeLabel[a.alert_type] ?? a.alert_type}</span>
-                      <span className="opacity-80">{a.description}</span>
-                      <span className="ml-auto text-xs uppercase opacity-70">{a.severity}</span>
-                    </div>
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-slate-100">{s.student_name}</p>
+                        <p className="text-xs text-slate-500">{s.student_email}</p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-300">
+                        {getSessionStatusLabel(s.status as SessionStatus)}
+                      </td>
+                      <td className="px-4 py-3 text-slate-300">
+                        {s.percentage !== null ? (
+                          <>
+                            {s.score}/{s.total_marks}{" "}
+                            <span className="text-xs text-slate-500">({s.percentage.toFixed(1)}%)</span>
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          <RiskBar score={s.suspicion_score} rec={s.recommendation} />
+                          <RiskBadge rec={s.recommendation} />
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-slate-300">{s.total_alerts}</td>
+                      <td className="px-4 py-3 text-xs text-slate-500">
+                        {s.submitted_at ? formatDateTime(s.submitted_at) : "—"}
+                      </td>
+                    </tr>
                   ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Detail */}
+          {selectedId && (
+            <div className="glass-strong rounded-2xl p-6">
+              {detailLoading || !detail ? (
+                <div className="flex justify-center py-6">
+                  <div className="h-6 w-6 animate-spin rounded-full border-4 border-violet border-t-transparent" />
                 </div>
+              ) : (
+                <>
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="font-display text-lg font-bold text-slate-50">{detail.student_name}</h2>
+                      <p className="text-sm text-slate-500">{detail.student_email}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <RiskBar score={detail.suspicion_score} rec={detail.recommendation} />
+                      <RiskBadge rec={detail.recommendation} />
+                    </div>
+                  </div>
+
+                  {Object.keys(detail.counts).length > 0 && (
+                    <div className="mb-5 flex flex-wrap gap-2">
+                      {Object.entries(detail.counts).map(([type, n]) => (
+                        <span key={type} className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">
+                          {typeLabel[type] ?? type}: <strong>{n}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <h3 className="mb-2 text-sm font-semibold text-slate-300">Timeline</h3>
+                  {detail.alerts.length === 0 ? (
+                    <p className="text-sm text-slate-500">No suspicious activity recorded.</p>
+                  ) : (
+                    <div className="flex max-h-96 flex-col gap-1.5 overflow-y-auto">
+                      {detail.alerts.map((a, i) => (
+                        <div
+                          key={i}
+                          className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${getAlertSeverityColor(
+                            a.severity
+                          )}`}
+                        >
+                          <span className="shrink-0 text-xs tabular-nums opacity-70">
+                            {new Date(a.timestamp).toLocaleTimeString("en-IN")}
+                          </span>
+                          <span className="shrink-0 font-medium">{typeLabel[a.alert_type] ?? a.alert_type}</span>
+                          <span className="opacity-80">{a.description}</span>
+                          <span className="ml-auto text-xs uppercase opacity-70">{a.severity}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
-            </>
+            </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );

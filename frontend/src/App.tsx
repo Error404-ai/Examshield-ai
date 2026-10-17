@@ -11,33 +11,46 @@ import { ProtectedRoute } from "./components/common/ProtectedRoutes";
 import { UserRole } from "./types";
 
 // Pages
+import { LandingPage } from "./pages/Landing/LandingPage";
 import { LoginPage } from "./pages/Auth/LoginPage";
 import { RegisterPage } from "./pages/Auth/RegisterPage";
 import { StudentDashboard } from "./pages/Dashboard/StudentDashboard";
 import { AdminDashboard } from "./pages/Dashboard/AdminDashboard";
 import { CreateExamPage } from "./pages/Admin/CreateExamPage";
-import { ExamReviewPage } from "./pages/Admin/ExamReviewPage"; // NEW
+import { ExamReviewPage } from "./pages/Admin/ExamReviewPage";
 import { ExamPage } from "./pages/Exam/ExamPage";
 import { ResultPage } from "./pages/Exam/ResultPage";
 
 const App: React.FC = () => {
   const { user, isLoading, logout } = useAuth();
 
+  const homeFor = (role: UserRole) =>
+    role === UserRole.ADMIN ? "/admin/dashboard" : "/student/dashboard";
+
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        {/* Show navbar only outside exam page */}
+      <div className="min-h-screen flex flex-col">
+        {/* Navbar everywhere except the exam and the auth pages */}
         <Routes>
           <Route path="/student/exam/*" element={null} />
-          <Route
-            path="*"
-            element={<Navbar user={user} onLogout={logout} />}
-          />
+          <Route path="/login" element={null} />
+          <Route path="/register" element={null} />
+          <Route path="*" element={<Navbar user={user} onLogout={logout} />} />
         </Routes>
 
         <main className="flex-1">
           <Routes>
             {/* Public */}
+            <Route
+              path="/"
+              element={
+                isLoading ? null : user ? (
+                  <Navigate to={homeFor(user.role)} replace />
+                ) : (
+                  <LandingPage />
+                )
+              }
+            />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
 
@@ -100,7 +113,6 @@ const App: React.FC = () => {
                 </ProtectedRoute>
               }
             />
-            {/* NEW */}
             <Route
               path="/admin/exams/:examId/review"
               element={
@@ -110,20 +122,6 @@ const App: React.FC = () => {
               }
             />
 
-            {/* Default redirect */}
-            <Route
-              path="/"
-              element={
-                user ? (
-                  <Navigate
-                    to={user.role === UserRole.ADMIN ? "/admin/dashboard" : "/student/dashboard"}
-                    replace
-                  />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
-              }
-            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

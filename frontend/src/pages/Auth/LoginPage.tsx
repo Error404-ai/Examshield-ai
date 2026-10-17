@@ -49,19 +49,23 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-white flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-grid p-4">
+      <div className="pointer-events-none absolute -top-32 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-violet/25 blur-3xl" />
+
+      <div className="relative w-full max-w-md">
         {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="h-12 w-12 rounded-xl bg-indigo-600 flex items-center justify-center mx-auto mb-3">
-            <span className="text-white font-bold text-xl">ES</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">ExamShield AI</h1>
-          <p className="text-gray-500 text-sm mt-1">Sign in to your account</p>
+        <div className="mb-8 text-center">
+          <Link to="/" className="inline-block">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-violet to-cyan shadow-glow-violet">
+              <span className="font-display text-xl font-bold text-white">ES</span>
+            </div>
+          </Link>
+          <h1 className="font-display text-2xl font-bold text-slate-50">Welcome back</h1>
+          <p className="mt-1 text-sm text-slate-400">Sign in to ExamShield AI</p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 flex flex-col gap-5">
+        <div className="glass-strong flex flex-col gap-5 rounded-2xl p-8 shadow-glass-lg">
           {error && <Alert variant="error">{error}</Alert>}
 
           <Input
@@ -82,13 +86,13 @@ export const LoginPage: React.FC = () => {
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           />
 
-          <Button onClick={handleSubmit} loading={loading} size="lg" className="w-full mt-1">
+          <Button onClick={handleSubmit} loading={loading} size="lg" className="mt-1 w-full">
             Sign In
           </Button>
 
-          <p className="text-center text-sm text-gray-500">
+          <p className="text-center text-sm text-slate-400">
             Don't have an account?{" "}
-            <Link to="/register" className="text-indigo-600 font-medium hover:underline">
+            <Link to="/register" className="font-medium text-violet-400 hover:text-violet-300">
               Register
             </Link>
           </p>

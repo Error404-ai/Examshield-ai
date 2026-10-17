@@ -18,6 +18,8 @@ export const Input: React.FC<InputProps> = ({
   iconRight,
   className = "",
   id,
+  onFocus,
+  onBlur,
   ...props
 }) => {
   const [focused, setFocused] = useState(false);
@@ -26,10 +28,7 @@ export const Input: React.FC<InputProps> = ({
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label
-          htmlFor={inputId}
-          className="text-sm font-medium text-gray-700"
-        >
+        <label htmlFor={inputId} className="text-sm font-medium text-slate-300">
           {label}
         </label>
       )}
@@ -51,12 +50,13 @@ export const Input: React.FC<InputProps> = ({
           className="w-full rounded-xl"
         >
           <input
+            {...props}
             id={inputId}
             className={clsx(
-              "w-full rounded-xl py-2.5 text-sm text-gray-900 placeholder:text-gray-400",
-              "bg-white border border-gray-300",
+              "w-full rounded-xl py-2.5 text-sm text-slate-100 placeholder:text-slate-500",
+              "bg-navy-800 border border-white/10",
               "transition-colors duration-150",
-              "focus:outline-none focus:border-violet/50",
+              "focus:outline-none focus:border-violet/60",
               "disabled:opacity-50 disabled:cursor-not-allowed",
               error && "border-rose/50 bg-rose/5",
               icon ? "pl-10" : "pl-4",
@@ -65,13 +65,12 @@ export const Input: React.FC<InputProps> = ({
             )}
             onFocus={(e) => {
               setFocused(true);
-              props.onFocus?.(e);
+              onFocus?.(e);
             }}
             onBlur={(e) => {
               setFocused(false);
-              props.onBlur?.(e);
+              onBlur?.(e);
             }}
-            {...props}
           />
         </motion.div>
         {iconRight && (
@@ -90,7 +89,7 @@ export const Input: React.FC<InputProps> = ({
             className="text-xs text-rose-400 flex items-center gap-1"
           >
             <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 16 16">
-              <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-.75 4a.75.75 0 011.5 0v3a.75.75 0 01-1.5 0V5zm.75 7a1 1 0 110-2 1 1 0 010 2z"/>
+              <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-.75 4a.75.75 0 011.5 0v3a.75.75 0 01-1.5 0V5zm.75 7a1 1 0 110-2 1 1 0 010 2z" />
             </svg>
             {error}
           </motion.p>

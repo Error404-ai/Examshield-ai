@@ -19,12 +19,12 @@ interface ProctoringOverlayProps {
 }
 
 const statusView: Record<FaceStatus, { label: string; dot: string }> = {
-  idle: { label: "Starting…", dot: "bg-gray-400" },
-  ok: { label: "Face verified", dot: "bg-green-400" },
-  no_face: { label: "No face detected", dot: "bg-red-400" },
-  multiple_faces: { label: "Multiple faces", dot: "bg-red-500" },
-  looking_away: { label: "Looking away", dot: "bg-yellow-400" },
-  eyes_closed: { label: "Eyes closed", dot: "bg-yellow-400" },
+  idle: { label: "Starting…", dot: "bg-slate-400" },
+  ok: { label: "Face verified", dot: "bg-emerald" },
+  no_face: { label: "No face detected", dot: "bg-rose" },
+  multiple_faces: { label: "Multiple faces", dot: "bg-rose" },
+  looking_away: { label: "Looking away", dot: "bg-amber" },
+  eyes_closed: { label: "Eyes closed", dot: "bg-amber" },
 };
 
 export const ProctoringOverlay: React.FC<ProctoringOverlayProps> = ({
@@ -42,27 +42,27 @@ export const ProctoringOverlay: React.FC<ProctoringOverlayProps> = ({
   let dot = statusView[faceStatus].dot;
   if (!cameraReady) {
     label = "Camera off";
-    dot = "bg-red-400";
+    dot = "bg-rose";
   } else if (modelState === "loading") {
     label = "Loading AI model…";
-    dot = "bg-blue-400 animate-pulse";
+    dot = "bg-cyan animate-pulse";
   } else if (modelState === "error") {
     label = "AI check unavailable";
-    dot = "bg-gray-400";
+    dot = "bg-slate-400";
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-20 w-56 flex flex-col gap-2">
-      <div className="relative rounded-xl overflow-hidden bg-gray-900 aspect-video shadow-lg">
-        <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-        <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-0.5">
+    <div className="fixed bottom-4 right-4 z-20 flex w-56 flex-col gap-2">
+      <div className="relative aspect-video overflow-hidden rounded-xl border border-white/10 bg-navy-950 shadow-glass-lg">
+        <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+        <div className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-0.5">
           <span className={`h-2 w-2 rounded-full ${dot}`} />
-          <span className="text-[11px] text-white font-medium">{label}</span>
+          <span className="text-[11px] font-medium text-white">{label}</span>
         </div>
       </div>
 
       {tabSwitchCount > 0 && (
-        <div className="rounded-lg bg-yellow-50 border border-yellow-200 px-3 py-2 text-xs text-yellow-800">
+        <div className="glass-amber rounded-lg px-3 py-2 text-xs text-amber-300">
           Tab switches: <strong>{tabSwitchCount}</strong> / {maxTabSwitches}
           {tabSwitchCount >= maxTabSwitches - 2 && " — the exam auto-submits at the limit."}
         </div>

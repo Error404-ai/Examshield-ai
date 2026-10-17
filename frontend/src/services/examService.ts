@@ -1,6 +1,6 @@
 /**
  * Exam Service
- * Exam CRUD, questions, session management
+ * Exam CRUD, questions, session management, AI generation, analytics
  */
 
 import api from "./api";
@@ -15,6 +15,45 @@ import {
   AdminStats,
   StudentStats,
 } from "../types";
+
+// ============ AI generation + analytics types ============
+
+export type Difficulty = "easy" | "medium" | "hard";
+
+export interface GenerateQuestionsRequest {
+  topic: string;
+  count: number;
+  difficulty: Difficulty;
+  context?: string;
+}
+
+export interface GeneratedQuestion {
+  question_text: string;
+  options: string[];
+  correct_index: number;
+  explanation: string;
+}
+
+export interface ExamAnalytics {
+  exam_title: string;
+  attempts: number;
+  passed: number;
+  failed: number;
+  pass_rate: number;
+  average_score: number;
+  highest: number;
+  lowest: number;
+  average_minutes: number;
+  flagged_sessions: number;
+  distribution: { label: string; count: number }[];
+  questions: {
+    question_id: string;
+    question_text: string;
+    marks: number;
+    correct_pct: number;
+    skipped: number;
+  }[];
+}
 
 // ============ Admin ============
 
@@ -62,6 +101,20 @@ export const adminService = {
 
   async deleteQuestion(questionId: string): Promise<void> {
     await api.delete(`/admin/questions/${questionId}`);
+  },
+
+  async generateQuestions(payload: GenerateQuestionsRequest): Promise<GeneratedQuestion[]> {
+    const { data } = await api.post<{ success: boolean; questions: GeneratedQuestion[] }>(
+      "/admin/questions/generate",
+      payload,
+      { timeout: 90000 }
+    );
+    return data.questions;
+  },
+
+  async getExamAnalytics(examId: string): Promise<ExamAnalytics> {
+    const { data } = await api.get(`/admin/exams/${examId}/analytics`);
+    return data;
   },
 
   async getExamResults(examId: string): Promise<{
