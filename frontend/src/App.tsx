@@ -16,10 +16,9 @@ import { RegisterPage } from "./pages/Auth/RegisterPage";
 import { StudentDashboard } from "./pages/Dashboard/StudentDashboard";
 import { AdminDashboard } from "./pages/Dashboard/AdminDashboard";
 import { CreateExamPage } from "./pages/Admin/CreateExamPage";
-import { ExamResultsPage } from "./pages/Admin/ExamResultsPage";
+import { ExamReviewPage } from "./pages/Admin/ExamReviewPage"; // NEW
 import { ExamPage } from "./pages/Exam/ExamPage";
 import { ResultPage } from "./pages/Exam/ResultPage";
-import { StudentResultsPage } from "./pages/Exam/StudentResultsPage";
 
 const App: React.FC = () => {
   const { user, isLoading, logout } = useAuth();
@@ -71,7 +70,7 @@ const App: React.FC = () => {
               path="/student/results"
               element={
                 <ProtectedRoute user={user} isLoading={isLoading} requiredRole={UserRole.STUDENT}>
-                  <StudentResultsPage />
+                  <StudentDashboard />
                 </ProtectedRoute>
               }
             />
@@ -101,11 +100,12 @@ const App: React.FC = () => {
                 </ProtectedRoute>
               }
             />
+            {/* NEW */}
             <Route
-              path="/admin/exams/:examId/results"
+              path="/admin/exams/:examId/review"
               element={
                 <ProtectedRoute user={user} isLoading={isLoading} requiredRole={UserRole.ADMIN}>
-                  <ExamResultsPage />
+                  <ExamReviewPage />
                 </ProtectedRoute>
               }
             />

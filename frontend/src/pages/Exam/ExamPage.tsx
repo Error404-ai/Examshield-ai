@@ -1,9 +1,7 @@
 /**
  * Exam Page - student takes the exam
- * Loader (fetch + start/resume session) is split from the runner so the
- * timer only mounts once the real remaining time is known.
- * The runner turns on the webcam + browser AI proctoring and hides the
- * questions until the camera is working.
+ * Flow: intro/rules screen -> start or resume session -> proctored exam runner.
+ * The timer only mounts once the real remaining time is known.
  */
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
@@ -15,6 +13,8 @@ import { useExamTimer } from "../../hooks/useExamTimer";
 import { useProctoring } from "../../hooks/useProctoring";
 import { Exam, Question, StudentAnswer } from "../../types";
 import { getErrorMessage } from "../../utils";
+
+const MAX_TAB_SWITCHES = 5;
 
 // ─── Runner ──────────────────────────────────────────────────────────────────
 
@@ -36,6 +36,14 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
   answersRef.current = answers;
   const submittedRef = useRef(false);
 
+  const proctor = useProctoring(sessionId);
+  const { start: startProctoring, stop: stopProctoring } = proctor;
+
+  // Start camera + AI as soon as the exam screen is up
+  useEffect(() => {
+    startProctoring();
+  }, [startProctoring]);
+
   const submit = useCallback(async () => {
     if (submittedRef.current) return;
     submittedRef.current = true;
@@ -48,6 +56,7 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
           selected_answer,
         })),
       });
+      stopProctoring();
       navigate(`/student/results/${sessionId}`, { replace: true });
     } catch (err) {
       submittedRef.current = false;
@@ -55,26 +64,24 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
     } finally {
       setSubmitting(false);
     }
-  }, [sessionId, navigate]);
+  }, [sessionId, navigate, stopProctoring]);
 
   const { timeLeft, formattedTime } = useExamTimer(remainingSeconds, submit);
 
-  // Too many tab switches -> the server tells us to end the exam, we auto-submit
-  const { status, alerts, tabSwitchCount, videoRef, startMonitoring } = useProctoring(sessionId, submit);
-
-  // Turn the camera on as soon as the exam opens
+  // Too many tab switches -> auto-submit
   useEffect(() => {
-    startMonitoring();
-  }, [startMonitoring]);
+    if (proctor.tabSwitchCount >= MAX_TAB_SWITCHES) submit();
+  }, [proctor.tabSwitchCount, submit]);
 
   const handleAnswer = (a: StudentAnswer) =>
     setAnswers((prev) => ({ ...prev, [a.question_id]: a.selected_answer }));
 
   const handleSubmitClick = () => {
     const unanswered = questions.length - Object.keys(answers).length;
-    const msg = unanswered > 0
-      ? `You have ${unanswered} unanswered question(s). Submit anyway?`
-      : "Submit your exam now?";
+    const msg =
+      unanswered > 0
+        ? `You have ${unanswered} unanswered question(s). Submit anyway?`
+        : "Submit your exam now?";
     if (window.confirm(msg)) submit();
   };
 
@@ -89,7 +96,6 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
 
   const q = questions[index];
   const isLast = index === questions.length - 1;
-  const cameraReady = status === "active" || status === "degraded";
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -101,20 +107,14 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
               Question {index + 1} of {questions.length}
             </p>
           </div>
-          <div className={`text-2xl font-bold tabular-nums ${timeLeft < 300 ? "text-red-600" : "text-gray-900"}`}>
+          <div
+            className={`text-2xl font-bold tabular-nums ${
+              timeLeft < 300 ? "text-red-600" : "text-gray-900"
+            }`}
+          >
             {formattedTime}
           </div>
         </div>
-      </div>
-
-      {/* Webcam + alerts: always mounted so the video element exists when the camera starts */}
-      <div className="fixed bottom-4 right-4 z-20 w-64 rounded-xl bg-white border border-gray-200 shadow-lg p-2">
-        <ProctoringOverlay
-          videoRef={videoRef}
-          status={status}
-          alerts={alerts}
-          tabSwitchCount={tabSwitchCount}
-        />
       </div>
 
       <div className="px-6 py-8 max-w-4xl mx-auto">
@@ -124,83 +124,84 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
           </div>
         )}
 
-        {!cameraReady ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-            {status === "denied" ? (
-              <>
-                <h2 className="text-lg font-semibold text-gray-900 mb-2">Camera access is required</h2>
-                <p className="text-sm text-gray-600 mb-5">
-                  This exam is proctored. Allow camera access in your browser (the camera icon
-                  in the address bar), then try again. Your timer is already running.
-                </p>
-                <button
-                  onClick={() => startMonitoring()}
-                  className="px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                >
-                  Try again
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent mx-auto mb-3" />
-                <p className="text-sm text-gray-600">Setting up your camera and proctoring...</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Click "Allow" when your browser asks for camera access. Video stays on your device.
-                </p>
-              </>
-            )}
-          </div>
-        ) : (
-          <>
-            <QuestionCard question={q} index={index} answer={answers[q._id] || ""} onAnswer={handleAnswer} />
+        <QuestionCard
+          question={q}
+          index={index}
+          answer={answers[q._id] || ""}
+          onAnswer={handleAnswer}
+        />
 
-            <div className="flex items-center justify-between mt-8 gap-4">
+        <div className="flex items-center justify-between mt-8 gap-4">
+          <button
+            onClick={() => setIndex((i) => Math.max(0, i - 1))}
+            disabled={index === 0}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg disabled:opacity-50"
+          >
+            Previous
+          </button>
+
+          <div className="flex flex-wrap justify-center gap-1">
+            {questions.map((qq, i) => (
               <button
-                onClick={() => setIndex((i) => Math.max(0, i - 1))}
-                disabled={index === 0}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg disabled:opacity-50"
+                key={qq._id}
+                onClick={() => setIndex(i)}
+                className={`px-3 py-1 rounded text-sm ${
+                  i === index
+                    ? "bg-indigo-600 text-white"
+                    : answers[qq._id]
+                    ? "bg-green-100 text-green-700"
+                    : "bg-gray-200 text-gray-700"
+                }`}
               >
-                Previous
+                {i + 1}
               </button>
+            ))}
+          </div>
 
-              <div className="flex flex-wrap justify-center gap-1">
-                {questions.map((qq, i) => (
-                  <button
-                    key={qq._id}
-                    onClick={() => setIndex(i)}
-                    className={`px-3 py-1 rounded text-sm ${
-                      i === index
-                        ? "bg-indigo-600 text-white"
-                        : answers[qq._id]
-                        ? "bg-green-100 text-green-700"
-                        : "bg-gray-200 text-gray-700"
-                    }`}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
-              </div>
-
-              {isLast ? (
-                <button
-                  onClick={handleSubmitClick}
-                  disabled={submitting}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {submitting ? "Submitting..." : "Submit Exam"}
-                </button>
-              ) : (
-                <button
-                  onClick={() => setIndex((i) => i + 1)}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                >
-                  Next
-                </button>
-              )}
-            </div>
-          </>
-        )}
+          {isLast ? (
+            <button
+              onClick={handleSubmitClick}
+              disabled={submitting}
+              className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {submitting ? "Submitting..." : "Submit Exam"}
+            </button>
+          ) : (
+            <button
+              onClick={() => setIndex((i) => i + 1)}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            >
+              Next
+            </button>
+          )}
+        </div>
       </div>
+
+      <ProctoringOverlay
+        videoRef={proctor.videoRef}
+        cameraReady={proctor.cameraReady}
+        modelState={proctor.modelState}
+        faceStatus={proctor.faceStatus}
+        alerts={proctor.alerts}
+        tabSwitchCount={proctor.tabSwitchCount}
+        maxTabSwitches={MAX_TAB_SWITCHES}
+      />
+
+      {proctor.cameraError && (
+        <div className="fixed inset-0 z-30 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md text-center">
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Camera required</h2>
+            <p className="text-sm text-gray-600 mb-4">{proctor.cameraError}</p>
+            <button
+              onClick={() => startProctoring()}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            >
+              Retry camera
+            </button>
+            <p className="text-xs text-gray-400 mt-3">The exam timer keeps running.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -211,6 +212,7 @@ export const ExamPage: React.FC = () => {
   const { examId } = useParams<{ examId: string }>();
   const navigate = useNavigate();
 
+  const [begun, setBegun] = useState(false);
   const [data, setData] = useState<{
     exam: Exam;
     questions: Question[];
@@ -220,8 +222,9 @@ export const ExamPage: React.FC = () => {
   const [error, setError] = useState("");
   const startedRef = useRef(false); // guards React StrictMode's double effect
 
+  // Runs only after the student accepts the rules
   useEffect(() => {
-    if (!examId || startedRef.current) return;
+    if (!examId || !begun || startedRef.current) return;
     startedRef.current = true;
 
     (async () => {
@@ -233,17 +236,58 @@ export const ExamPage: React.FC = () => {
         const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
         const remaining = Math.max(0, session.duration_minutes * 60 - elapsedSeconds);
 
-        setData({
-          exam,
-          questions,
-          sessionId: session.session_id,
-          remaining,
-        });
+        setData({ exam, questions, sessionId: session.session_id, remaining });
       } catch (err) {
         setError(getErrorMessage(err));
       }
     })();
-  }, [examId]);
+  }, [examId, begun]);
+
+  const handleBegin = () => {
+    // Must be called directly from the click to be allowed by the browser
+    Promise.resolve(document.documentElement.requestFullscreen?.()).catch(() => {});
+    setBegun(true);
+  };
+
+  if (!begun) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 max-w-lg w-full">
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">Proctored exam</h1>
+          <p className="text-sm text-gray-500 mb-5">Read these rules before you begin.</p>
+
+          <ul className="text-sm text-gray-700 space-y-2 mb-6 list-disc pl-5">
+            <li>Your webcam must stay on. Keep your face visible and stay alone in the frame.</li>
+            <li>The exam runs in fullscreen. Leaving fullscreen is reported.</li>
+            <li>
+              Switching tabs is reported. After {MAX_TAB_SWITCHES} switches the exam is submitted
+              automatically.
+            </li>
+            <li>
+              Face checks run on your device. Your video is not uploaded or stored; only short
+              event notes (like “looked away”) are sent to your examiner.
+            </li>
+            <li>The timer starts as soon as you press the button below.</li>
+          </ul>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => navigate("/student/dashboard")}
+              className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg"
+            >
+              Back
+            </button>
+            <button
+              onClick={handleBegin}
+              className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            >
+              I agree, start exam
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     return (
