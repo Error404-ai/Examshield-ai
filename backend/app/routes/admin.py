@@ -177,7 +177,7 @@ async def generate_ai_questions(body: GenerateIn, admin=Depends(admin_only)):
     except AIUnavailable:
         raise HTTPException(
             status_code=503,
-            detail="AI generation isn't configured on the server (missing ANTHROPIC_API_KEY).",
+            detail="AI generation isn't configured on the server (missing GEMINI_API_KEY).",
         )
     except AIGenerationError as exc:
         raise HTTPException(status_code=502, detail=str(exc))

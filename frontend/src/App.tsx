@@ -20,6 +20,7 @@ import { CreateExamPage } from "./pages/Admin/CreateExamPage";
 import { ExamReviewPage } from "./pages/Admin/ExamReviewPage";
 import { ExamPage } from "./pages/Exam/ExamPage";
 import { ResultPage } from "./pages/Exam/ResultPage";
+import { StudentResultsPage } from "./pages/Exam/StudentResultsPage";
 
 const App: React.FC = () => {
   const { user, isLoading, logout } = useAuth();
@@ -83,7 +84,7 @@ const App: React.FC = () => {
               path="/student/results"
               element={
                 <ProtectedRoute user={user} isLoading={isLoading} requiredRole={UserRole.STUDENT}>
-                  <StudentDashboard />
+                  <StudentResultsPage />
                 </ProtectedRoute>
               }
             />

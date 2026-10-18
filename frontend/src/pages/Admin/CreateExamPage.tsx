@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { adminService } from "../../services/examService";
+import { adminService, Difficulty } from "../../services/examService";
 import { QuestionType } from "../../types";
 import { getErrorMessage } from "../../utils";
 
@@ -17,6 +17,8 @@ interface DraftQuestion {
   options: string[];
   correct: number;
   marks: number;
+  ai?: boolean; // drafted by the AI generator
+  explanation?: string; // shown to the admin only, never stored
 }
 
 const emptyQuestion = (): DraftQuestion => ({
@@ -30,6 +32,14 @@ const inputClass =
   "w-full rounded-xl border border-white/10 bg-navy-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-violet/60 focus:outline-none";
 
 const labelClass = "mb-1 block text-sm font-medium text-slate-300";
+
+const isBlank = (q: DraftQuestion) => !q.text.trim() && q.options.every((o) => !o.trim());
+
+const DIFFICULTIES: { id: Difficulty; label: string }[] = [
+  { id: "easy", label: "Easy" },
+  { id: "medium", label: "Medium" },
+  { id: "hard", label: "Hard" },
+];
 
 export const CreateExamPage: React.FC = () => {
   const navigate = useNavigate();
@@ -46,6 +56,15 @@ export const CreateExamPage: React.FC = () => {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(isEdit);
+
+  // AI generator
+  const [aiTopic, setAiTopic] = useState("");
+  const [aiCount, setAiCount] = useState(5);
+  const [aiDifficulty, setAiDifficulty] = useState<Difficulty>("medium");
+  const [aiContext, setAiContext] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiNote, setAiNote] = useState("");
 
   // Load existing exam when editing
   useEffect(() => {
@@ -97,6 +116,42 @@ export const CreateExamPage: React.FC = () => {
     const q = questions[i];
     if (q.id) setDeletedIds((ids) => [...ids, q.id!]);
     setQuestions((qs) => qs.filter((_, idx) => idx !== i));
+  };
+
+  const handleGenerate = async () => {
+    setAiError("");
+    setAiNote("");
+    if (aiTopic.trim().length < 3) {
+      setAiError("Enter a topic (at least 3 characters)");
+      return;
+    }
+    const count = Math.min(15, Math.max(1, Math.round(aiCount) || 5));
+    setAiLoading(true);
+    try {
+      const generated = await adminService.generateQuestions({
+        topic: aiTopic.trim(),
+        count,
+        difficulty: aiDifficulty,
+        context: aiContext.trim() || undefined,
+      });
+      const drafts: DraftQuestion[] = generated.map((g) => ({
+        text: g.question_text,
+        options: g.options,
+        correct: g.correct_index,
+        marks: 1,
+        ai: true,
+        explanation: g.explanation,
+      }));
+      // Replace the untouched starter question, otherwise append
+      setQuestions((qs) => (qs.length === 1 && isBlank(qs[0]) ? drafts : [...qs, ...drafts]));
+      setAiNote(
+        `Added ${drafts.length} AI-drafted question${drafts.length === 1 ? "" : "s"}. Review each one before saving.`
+      );
+    } catch (err) {
+      setAiError(getErrorMessage(err));
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const validate = (): string => {
@@ -250,13 +305,123 @@ export const CreateExamPage: React.FC = () => {
         </div>
       </div>
 
+      {/* AI generator */}
+      <div className="glass-violet mb-6 rounded-2xl p-6">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg font-semibold text-slate-100">Generate with AI</h2>
+            <p className="text-sm text-slate-400">
+              Draft multiple-choice questions, then review and edit them below.
+            </p>
+          </div>
+          <span className="rounded-full border border-violet/30 bg-violet/10 px-2.5 py-0.5 text-xs font-medium text-violet-300">
+            AI
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className={labelClass}>Topic</label>
+            <input
+              className={inputClass}
+              value={aiTopic}
+              onChange={(e) => setAiTopic(e.target.value)}
+              placeholder="e.g. Binary trees and traversal"
+              maxLength={200}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass}>Number of questions (1-15)</label>
+              <input
+                type="number"
+                min={1}
+                max={15}
+                className={inputClass}
+                value={aiCount}
+                onChange={(e) => setAiCount(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Difficulty</label>
+              <div className="flex gap-1 rounded-xl border border-white/10 bg-navy-800 p-1">
+                {DIFFICULTIES.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => setAiDifficulty(d.id)}
+                    className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                      aiDifficulty === d.id
+                        ? "bg-violet/25 text-violet-200"
+                        : "text-slate-400 hover:text-slate-100"
+                    }`}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>
+              Study material <span className="font-normal text-slate-500">(optional)</span>
+            </label>
+            <textarea
+              className={inputClass}
+              rows={3}
+              maxLength={6000}
+              value={aiContext}
+              onChange={(e) => setAiContext(e.target.value)}
+              placeholder="Paste notes or a passage. Questions will be based only on this text."
+            />
+            <p className="mt-1 text-right text-xs text-slate-500">{aiContext.length} / 6000</p>
+          </div>
+
+          {aiError && (
+            <div className="glass-rose rounded-xl p-3">
+              <p className="text-sm text-rose-300">{aiError}</p>
+            </div>
+          )}
+          {aiNote && (
+            <div className="glass-emerald rounded-xl p-3">
+              <p className="text-sm text-emerald-300">{aiNote}</p>
+            </div>
+          )}
+
+          <div>
+            <button
+              type="button"
+              disabled={aiLoading}
+              onClick={handleGenerate}
+              className="rounded-xl bg-violet px-5 py-2 text-sm font-medium text-white transition-all hover:bg-violet-400 hover:shadow-glow-violet disabled:opacity-50"
+            >
+              {aiLoading ? "Generating... this can take up to a minute" : "Generate questions"}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Questions */}
-      <h2 className="mb-3 font-display text-xl font-bold text-slate-100">Questions ({questions.length})</h2>
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="font-display text-xl font-bold text-slate-100">Questions ({questions.length})</h2>
+        <p className="text-sm text-slate-400">
+          Total marks: {questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0)}
+        </p>
+      </div>
       <div className="mb-4 flex flex-col gap-4">
         {questions.map((q, qi) => (
           <div key={q.id ?? `new-${qi}`} className="glass flex flex-col gap-3 rounded-2xl p-5">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-200">Question {qi + 1}</p>
+              <p className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+                Question {qi + 1}
+                {q.ai && (
+                  <span className="rounded-full border border-violet/30 bg-violet/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-300">
+                    AI draft
+                  </span>
+                )}
+              </p>
               {questions.length > 1 && (
                 <button
                   type="button"
@@ -303,6 +468,12 @@ export const CreateExamPage: React.FC = () => {
               />
               <span className="ml-2 text-xs text-slate-500">Select the radio button next to the correct option</span>
             </div>
+            {q.explanation && (
+              <p className="rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-400">
+                <span className="font-medium text-slate-300">Why: </span>
+                {q.explanation}
+              </p>
+            )}
           </div>
         ))}
       </div>

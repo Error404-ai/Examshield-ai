@@ -1,5 +1,7 @@
 /**
  * Login Page
+ * No forced redirect: if a session exists the user sees a choice
+ * (continue to dashboard, or sign out and switch account).
  */
 
 import React, { useState } from "react";
@@ -7,26 +9,18 @@ import { Link, useNavigate } from "react-router-dom";
 import { Input } from "../../components/common/Input";
 import { Button } from "../../components/common/Button";
 import { Alert } from "../../components/common/Badge";
+import { AlreadySignedIn } from "../../components/auth/AlreadySignedIn";
 import { useAuth } from "../../context/AuthContext";
 import { UserRole } from "../../types";
 import { getErrorMessage } from "../../utils";
 
 export const LoginPage: React.FC = () => {
-  const { login, user } = useAuth();
+  const { login, logout, user, isLoading } = useAuth();
   const navigate = useNavigate();
 
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // Redirect if already logged in
-  React.useEffect(() => {
-    if (user) {
-      navigate(user.role === UserRole.ADMIN ? "/admin/dashboard" : "/student/dashboard", {
-        replace: true,
-      });
-    }
-  }, [user, navigate]);
 
   const handleSubmit = async () => {
     setError("");
@@ -64,39 +58,42 @@ export const LoginPage: React.FC = () => {
           <p className="mt-1 text-sm text-slate-400">Sign in to ExamShield AI</p>
         </div>
 
-        {/* Card */}
-        <div className="glass-strong flex flex-col gap-5 rounded-2xl p-8 shadow-glass-lg">
-          {error && <Alert variant="error">{error}</Alert>}
+        {isLoading ? null : user ? (
+          <AlreadySignedIn user={user} onSignOut={logout} />
+        ) : (
+          <div className="glass-strong flex flex-col gap-5 rounded-2xl p-8 shadow-glass-lg">
+            {error && <Alert variant="error">{error}</Alert>}
 
-          <Input
-            label="Email"
-            type="email"
-            placeholder="you@example.com"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          />
+            <Input
+              label="Email"
+              type="email"
+              placeholder="you@example.com"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            />
 
-          <Input
-            label="Password"
-            type="password"
-            placeholder="••••••••"
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          />
+            <Input
+              label="Password"
+              type="password"
+              placeholder="••••••••"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            />
 
-          <Button onClick={handleSubmit} loading={loading} size="lg" className="mt-1 w-full">
-            Sign In
-          </Button>
+            <Button onClick={handleSubmit} loading={loading} size="lg" className="mt-1 w-full">
+              Sign In
+            </Button>
 
-          <p className="text-center text-sm text-slate-400">
-            Don't have an account?{" "}
-            <Link to="/register" className="font-medium text-violet-400 hover:text-violet-300">
-              Register
-            </Link>
-          </p>
-        </div>
+            <p className="text-center text-sm text-slate-400">
+              Don't have an account?{" "}
+              <Link to="/register" className="font-medium text-violet-400 hover:text-violet-300">
+                Register
+              </Link>
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
