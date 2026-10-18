@@ -15,7 +15,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.8-flash"
 
 
 class AIUnavailable(Exception):
@@ -103,7 +103,6 @@ async def generate_questions(
         "generationConfig": {
             "responseMimeType": "application/json",
             "maxOutputTokens": min(8000, 1000 + count * 350),
-            "temperature": 0.7,
             "thinkingConfig": {"thinkingBudget": 0},
         },
     }

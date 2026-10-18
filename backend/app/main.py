@@ -10,6 +10,12 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
 
+# Load backend/.env into os.environ BEFORE the app modules are imported.
+# auth.py (ADMIN_EMAILS) and ai_service.py (GEMINI_API_KEY) read os.environ directly.
+# On Render the real environment is used and this does nothing harmful.
+from dotenv import load_dotenv
+load_dotenv()
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
