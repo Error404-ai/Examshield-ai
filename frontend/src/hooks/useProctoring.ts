@@ -127,6 +127,13 @@ function classify(res: FaceLandmarkerResult): FaceStatus {
   return "ok";
 }
 
+export interface ProctoringOptions {
+  /** Auto-end the exam when the student has left the tab this many times (e.g. 3) */
+  maxTabSwitches?: number;
+  /** Called once when the limit is reached; the exam page should submit the exam here */
+  onTabLimit?: () => void;
+}
+
 export interface ProctoringHook {
   videoRef: React.RefObject<HTMLVideoElement>;
   start: () => Promise<void>;
@@ -143,7 +150,13 @@ export interface ProctoringHook {
   enterFullscreen: () => Promise<boolean>;
 }
 
-export function useProctoring(sessionId: string): ProctoringHook {
+export function useProctoring(sessionId: string, options: ProctoringOptions = {}): ProctoringHook {
+  // Latest options without re-creating listeners (the callback closes over fresh answers)
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const tabCountRef = useRef(0);
+  const tabLimitFiredRef = useRef(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const landmarkerRef = useRef<FaceLandmarker | null>(null);
@@ -189,7 +202,25 @@ export function useProctoring(sessionId: string): ProctoringHook {
         timestamp: new Date().toISOString(),
       };
       setAlerts((prev) => [...prev.slice(-49), alert]);
-      proctoringService.logEvent(sessionId, { alert_type: type, severity, description }).catch(() => {});
+      // Save to the server. A failure used to be swallowed silently (the alert still showed
+      // on the student's screen), so log why, and retry network/server errors.
+      const payload = { alert_type: type, severity, description };
+      const send = async (attempt: number): Promise<void> => {
+        try {
+          await proctoringService.logEvent(sessionId, payload);
+        } catch (err: any) {
+          const status = err?.response?.status;
+          console.warn(
+            `[ExamShield] event "${type}" was NOT saved`,
+            status ?? err?.message,
+            err?.response?.data
+          );
+          if ((!status || status >= 500) && attempt < 2) {
+            setTimeout(() => void send(attempt + 1), 2000 * (attempt + 1));
+          }
+        }
+      };
+      void send(0);
       return true;
     },
     [sessionId]
@@ -434,7 +465,16 @@ export function useProctoring(sessionId: string): ProctoringHook {
       if (!document.hidden) return;
       // count only events that pass the cooldown, so the counter matches the alerts
       const sent = emit("tab_switch", AlertSeverity.MEDIUM, "Student left the exam tab", TAB_COOLDOWN);
-      if (sent) setTabSwitchCount((n) => n + 1);
+      if (!sent) return;
+
+      tabCountRef.current += 1;
+      setTabSwitchCount(tabCountRef.current);
+
+      const { maxTabSwitches, onTabLimit } = optionsRef.current;
+      if (maxTabSwitches && tabCountRef.current >= maxTabSwitches && !tabLimitFiredRef.current) {
+        tabLimitFiredRef.current = true; // fire only once
+        onTabLimit?.();
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
