@@ -1,6 +1,7 @@
 /**
  * ExamCard Component
- * Displays exam summary for both admin and student views
+ * Rendered as a list row for both admin and student views.
+ * Put rows inside a <ul className="divide-y ... border ..."> container.
  */
 
 import React from "react";
@@ -54,36 +55,26 @@ export const ExamCard: React.FC<ExamCardProps> = ({
     return <Badge variant="info">Available</Badge>;
   };
 
-  const tile = (label: string, value: string | number) => (
-    <div className="rounded-xl bg-white/5 border border-white/10 py-2">
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className="font-semibold text-slate-100 text-sm">{value}</p>
-    </div>
-  );
-
   return (
-    <div className="glass card-hover rounded-2xl p-5 flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-semibold text-slate-100 text-base">{exam.title}</h3>
-          <p className="text-sm text-slate-400 mt-0.5 line-clamp-2">{exam.description}</p>
+    <li className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="font-display text-base font-medium text-gray-900">{exam.title}</h3>
+          {statusBadge()}
         </div>
-        {statusBadge()}
+        {exam.description && <p className="mt-0.5 line-clamp-1 text-sm text-gray-500">{exam.description}</p>}
+        <p className="mt-1 text-sm tabular-nums text-gray-500">
+          {formatDuration(exam.duration)} · {exam.total_marks} marks · pass at {exam.passing_marks}
+        </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 text-center">
-        {tile("Duration", formatDuration(exam.duration))}
-        {tile("Total Marks", exam.total_marks)}
-        {tile("Passing", exam.passing_marks)}
-      </div>
-
-      <div className="flex gap-2 pt-1">
+      <div className="flex shrink-0 gap-2">
         {isAdmin ? (
           <>
-            <Button size="sm" variant="secondary" onClick={() => onEdit?.(exam._id)} className="flex-1">
+            <Button size="sm" variant="secondary" onClick={() => onEdit?.(exam._id)}>
               Edit
             </Button>
-            <Button size="sm" variant="primary" onClick={() => onViewResults?.(exam._id)} className="flex-1">
+            <Button size="sm" variant="primary" onClick={() => onViewResults?.(exam._id)}>
               Results
             </Button>
             <Button size="sm" variant="danger" onClick={() => onDelete?.(exam._id)}>
@@ -93,15 +84,14 @@ export const ExamCard: React.FC<ExamCardProps> = ({
         ) : (
           <Button
             size="sm"
-            variant="primary"
+            variant={finished ? "secondary" : "primary"}
             onClick={() => onStart?.(exam._id)}
             disabled={finished}
-            className="w-full"
           >
-            {finished ? "Already Submitted" : exam.attempted ? "Resume Exam" : "Start Exam"}
+            {finished ? "Submitted" : exam.attempted ? "Resume exam" : "Start exam"}
           </Button>
         )}
       </div>
-    </div>
+    </li>
   );
 };

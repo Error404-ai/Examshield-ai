@@ -31,11 +31,15 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <div className="min-h-screen flex flex-col">
-        {/* Navbar everywhere except the exam and the auth pages */}
+        {/* Navbar everywhere except the exam, the auth pages and the logged-out landing page */}
         <Routes>
           <Route path="/student/exam/*" element={null} />
           <Route path="/login" element={null} />
           <Route path="/register" element={null} />
+          <Route
+            path="/"
+            element={user ? <Navbar user={user} onLogout={logout} /> : null}
+          />
           <Route path="*" element={<Navbar user={user} onLogout={logout} />} />
         </Routes>
 

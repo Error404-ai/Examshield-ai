@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { studentService } from "../../services/examService";
-import { Badge } from "../../components/common/Badge";
+import { Badge, Alert } from "../../components/common/Badge";
 import { ExamResult } from "../../types";
 import { formatDateTime, getErrorMessage } from "../../utils";
 
@@ -25,50 +25,47 @@ export const StudentResultsPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-violet-400 border-t-transparent" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
       </div>
     );
   }
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
-      <h1 className="mb-6 font-display text-3xl font-bold text-slate-50">My Results</h1>
+      <h1 className="mb-6 font-display text-3xl font-semibold text-gray-900">My results</h1>
 
       {error && (
-        <div className="glass-rose mb-6 rounded-xl p-4">
-          <p className="text-sm text-rose-300">{error}</p>
+        <div className="mb-6">
+          <Alert variant="error">{error}</Alert>
         </div>
       )}
 
       {results.length === 0 ? (
-        <div className="glass rounded-2xl p-10 text-center text-slate-400">
-          You haven't completed any exams yet
+        <div className="rounded-lg border border-dashed border-gray-300 px-6 py-12 text-center text-gray-600">
+          You haven&rsquo;t completed any exams yet.
         </div>
       ) : (
-        <div className="glass divide-y divide-white/10 overflow-hidden rounded-2xl">
+        <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
           {results.map((r) => (
-            <Link
-              key={r._id}
-              to={`/student/results/${r._id}`}
-              className="flex items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-white/5"
-            >
-              <div>
-                <p className="font-medium text-slate-100">{r.exam_title}</p>
-                <p className="text-xs text-slate-500">
-                  {formatDateTime(r.submitted_at || r.started_at)}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-300">
-                  {r.score}/{r.total_marks} ({r.percentage.toFixed(1)}%)
-                </span>
-                <Badge variant={r.passed ? "success" : "error"}>
-                  {r.passed ? "Passed" : "Failed"}
-                </Badge>
-              </div>
-            </Link>
+            <li key={r._id}>
+              <Link
+                to={`/student/results/${r._id}`}
+                className="flex items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-gray-50"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-gray-900">{r.exam_title}</p>
+                  <p className="text-sm text-gray-500">{formatDateTime(r.submitted_at || r.started_at)}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="text-sm tabular-nums text-gray-700">
+                    {r.score}/{r.total_marks} ({r.percentage.toFixed(1)}%)
+                  </span>
+                  <Badge variant={r.passed ? "success" : "error"}>{r.passed ? "Passed" : "Failed"}</Badge>
+                </div>
+              </Link>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );

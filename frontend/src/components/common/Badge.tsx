@@ -1,6 +1,5 @@
 import React from "react";
 import clsx from "clsx";
-import { motion } from "framer-motion";
 
 type BadgeVariant = "success" | "error" | "warning" | "info" | "neutral" | "violet";
 
@@ -11,40 +10,34 @@ interface BadgeProps {
   className?: string;
 }
 
+// "violet" is kept so existing callers still compile; it uses the app accent
 const badgeVariants: Record<BadgeVariant, string> = {
-  success: "bg-emerald/10 text-emerald-400 border border-emerald/20",
-  error: "bg-rose/10 text-rose-400 border border-rose/20",
-  warning: "bg-amber/10 text-amber-400 border border-amber/20",
-  info: "bg-cyan/10 text-cyan-400 border border-cyan/20",
-  neutral: "bg-white/5 text-slate-400 border border-white/10",
-  violet: "bg-violet/10 text-violet-300 border border-violet/20",
+  success: "bg-green-50 text-green-800 border-green-200",
+  error: "bg-red-50 text-red-800 border-red-200",
+  warning: "bg-amber-50 text-amber-800 border-amber-200",
+  info: "bg-indigo-50 text-indigo-800 border-indigo-200",
+  neutral: "bg-gray-100 text-gray-700 border-gray-200",
+  violet: "bg-indigo-50 text-indigo-800 border-indigo-200",
 };
 
 const dotColors: Record<BadgeVariant, string> = {
-  success: "bg-emerald",
-  error: "bg-rose",
-  warning: "bg-amber",
-  info: "bg-cyan",
-  neutral: "bg-slate-500",
-  violet: "bg-violet",
+  success: "bg-green-600",
+  error: "bg-red-600",
+  warning: "bg-amber-600",
+  info: "bg-indigo-600",
+  neutral: "bg-gray-500",
+  violet: "bg-indigo-600",
 };
 
-export const Badge: React.FC<BadgeProps> = ({
-  variant = "neutral",
-  dot,
-  children,
-  className,
-}) => (
+export const Badge: React.FC<BadgeProps> = ({ variant = "neutral", dot, children, className }) => (
   <span
     className={clsx(
-      "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
+      "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium",
       badgeVariants[variant],
       className
     )}
   >
-    {dot && (
-      <span className={clsx("h-1.5 w-1.5 rounded-full shrink-0", dotColors[variant])} />
-    )}
+    {dot && <span className={clsx("h-1.5 w-1.5 shrink-0 rounded-full", dotColors[variant])} />}
     {children}
   </span>
 );
@@ -58,52 +51,29 @@ interface AlertProps {
 }
 
 const alertStyles: Record<string, string> = {
-  error: "glass-rose text-rose-300",
-  warning: "glass-amber text-amber-300",
-  info: "glass-cyan text-cyan-300",
-  success: "glass-emerald text-emerald-300",
+  error: "border-red-200 bg-red-50 text-red-800",
+  warning: "border-amber-200 bg-amber-50 text-amber-900",
+  info: "border-indigo-200 bg-indigo-50 text-indigo-900",
+  success: "border-green-200 bg-green-50 text-green-800",
 };
 
-const alertIcons: Record<string, string> = {
-  error: "M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z",
-  warning: "M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z",
-  info: "M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
-  success: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
-};
-
-export const Alert: React.FC<AlertProps> = ({
-  variant = "info",
-  children,
-  onDismiss,
-}) => (
-  <motion.div
-    initial={{ opacity: 0, y: -8, scale: 0.98 }}
-    animate={{ opacity: 1, y: 0, scale: 1 }}
-    exit={{ opacity: 0, y: -8, scale: 0.98 }}
-    className={clsx(
-      "flex items-start gap-3 rounded-xl p-3.5 text-sm",
-      alertStyles[variant]
-    )}
+export const Alert: React.FC<AlertProps> = ({ variant = "info", children, onDismiss }) => (
+  <div
+    role={variant === "error" ? "alert" : "status"}
+    className={clsx("flex items-start gap-3 rounded-lg border px-3.5 py-3 text-sm", alertStyles[variant])}
   >
-    <svg
-      className="h-4 w-4 mt-0.5 shrink-0"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      viewBox="0 0 24 24"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d={alertIcons[variant]} />
-    </svg>
     <span className="flex-1">{children}</span>
     {onDismiss && (
       <button
+        type="button"
         onClick={onDismiss}
-        className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+        aria-label="Dismiss"
+        className="shrink-0 text-current opacity-60 hover:opacity-100"
       >
-        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
     )}
-  </motion.div>
+  </div>
 );

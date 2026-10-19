@@ -6,7 +6,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { studentService } from "../../services/examService";
 import { Button } from "../../components/common/Button";
-import { Badge } from "../../components/common/Badge";
+import { Badge, Alert } from "../../components/common/Badge";
 import { formatDateTime, getScoreColor, getScoreGrade, getErrorMessage } from "../../utils";
 import { ExamResult } from "../../types";
 
@@ -39,8 +39,8 @@ export const ResultPage: React.FC = () => {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-violet border-t-transparent" />
-          <p className="text-sm text-slate-400">Loading results...</p>
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+          <p className="text-sm text-gray-500">Loading results</p>
         </div>
       </div>
     );
@@ -48,55 +48,49 @@ export const ResultPage: React.FC = () => {
 
   if (!result) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="flex min-h-[60vh] items-center justify-center px-6">
         <div className="text-center">
-          <p className="mb-4 text-slate-400">{error || "Result not found"}</p>
-          <Button onClick={() => navigate("/student/dashboard")}>Back to Dashboard</Button>
+          <p className="mb-4 text-gray-600">{error || "Result not found"}</p>
+          <Button onClick={() => navigate("/student/dashboard")}>Back to dashboard</Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-8">
+    <div className="mx-auto max-w-3xl px-6 py-10">
       {error && (
-        <div className="glass-rose mb-6 rounded-xl p-4">
-          <p className="text-sm text-rose-300">{error}</p>
+        <div className="mb-6">
+          <Alert variant="error">{error}</Alert>
         </div>
       )}
 
-      {/* Score Card */}
-      <div className="glass-strong mb-6 rounded-2xl p-8 text-center shadow-glass-lg">
-        <h1 className="mb-2 font-display text-3xl font-bold text-slate-50">
-          {result.exam_title || "Exam Result"}
-        </h1>
-        <p className="mb-6 text-slate-400">{formatDateTime(result.submitted_at || result.started_at)}</p>
+      {/* Score */}
+      <header className="border-b border-gray-200 pb-8">
+        <h1 className="font-display text-3xl font-semibold text-gray-900">{result.exam_title || "Exam result"}</h1>
+        <p className="mt-1 text-gray-500">{formatDateTime(result.submitted_at || result.started_at)}</p>
 
-        <div className="mb-6 inline-flex items-baseline gap-2">
-          <span className={`font-display text-6xl font-bold ${getScoreColor(result.percentage)}`}>
-            {result.score}
-          </span>
-          <span className="text-2xl text-slate-500">/ {result.total_marks}</span>
-        </div>
-
-        <div className="mb-6 flex items-center justify-center gap-4">
-          <Badge variant={result.passed ? "success" : "error"}>{result.percentage.toFixed(1)}%</Badge>
-          <div className={`font-display text-3xl font-bold ${getScoreColor(result.percentage)}`}>
-            {getScoreGrade(result.percentage)}
+        <div className="mt-8 flex flex-wrap items-end gap-x-8 gap-y-4">
+          <p className="font-display tabular-nums">
+            <span className={`text-6xl font-semibold ${getScoreColor(result.percentage)}`}>{result.score}</span>
+            <span className="ml-2 text-2xl text-gray-400">/ {result.total_marks}</span>
+          </p>
+          <div className="flex items-center gap-3 pb-1.5">
+            <span className="text-lg tabular-nums text-gray-700">{result.percentage.toFixed(1)}%</span>
+            <span className={`font-display text-2xl font-semibold ${getScoreColor(result.percentage)}`}>
+              {getScoreGrade(result.percentage)}
+            </span>
+            <Badge variant={result.passed ? "success" : "error"}>{result.passed ? "Passed" : "Failed"}</Badge>
           </div>
         </div>
+      </header>
 
-        <Badge variant={result.passed ? "success" : "error"}>
-          {result.passed ? "PASSED ✓" : "FAILED"}
-        </Badge>
-      </div>
-
-      {/* Answer Review */}
+      {/* Answer review */}
       {result.answers && result.answers.length > 0 && (
-        <div className="glass rounded-2xl p-6">
-          <h2 className="mb-4 font-display text-lg font-bold text-slate-100">Answer Review</h2>
+        <section className="mt-8">
+          <h2 className="mb-2 font-display text-xl font-semibold text-gray-900">Answer review</h2>
 
-          <div className="space-y-4">
+          <ol className="divide-y divide-gray-200">
             {result.answers.map((answer, index) => {
               const answerMeta = answer as {
                 question_text?: string;
@@ -114,56 +108,47 @@ export const ResultPage: React.FC = () => {
                 `Question ${index + 1}`;
 
               return (
-                <div
+                <li
                   key={answer.question_id || index}
-                  className={`rounded-xl border-l-4 p-4 ${
-                    answer.is_correct
-                      ? "border-emerald bg-emerald/5"
-                      : "border-rose bg-rose/5"
-                  }`}
+                  className={`border-l-2 py-5 pl-5 ${answer.is_correct ? "border-green-600" : "border-red-500"}`}
                 >
-                  <div className="mb-2 flex items-start justify-between gap-3">
-                    <p className="font-medium text-slate-100">
+                  <div className="flex items-start justify-between gap-4">
+                    <p className="font-medium text-gray-900">
                       {index + 1}. {questionText}
                     </p>
-                    <Badge variant={answer.is_correct ? "success" : "error"}>
+                    <span className="shrink-0 text-sm tabular-nums text-gray-500">
                       {answer.marks_awarded} / {answerMeta.marks ?? "—"}
-                    </Badge>
+                    </span>
                   </div>
 
-                  <div className="space-y-2 text-sm">
+                  <dl className="mt-3 space-y-2 text-sm">
                     <div>
-                      <p className="text-slate-500">Your Answer:</p>
-                      <p
-                        className={`font-medium ${
-                          answer.is_correct ? "text-emerald-400" : "text-rose-400"
-                        }`}
-                      >
-                        {answer.selected_answer || "(Not answered)"}
-                      </p>
+                      <dt className="text-gray-500">Your answer</dt>
+                      <dd className={`font-medium ${answer.is_correct ? "text-green-700" : "text-red-700"}`}>
+                        {answer.selected_answer || "Not answered"}
+                      </dd>
                     </div>
-
                     {!answer.is_correct && (
                       <div>
-                        <p className="text-slate-500">Correct Answer:</p>
-                        <p className="font-medium text-emerald-400">{answer.correct_answer}</p>
+                        <dt className="text-gray-500">Correct answer</dt>
+                        <dd className="font-medium text-green-700">{answer.correct_answer}</dd>
                       </div>
                     )}
-                  </div>
-                </div>
+                  </dl>
+                </li>
               );
             })}
-          </div>
-        </div>
+          </ol>
+        </section>
       )}
 
-      <div className="mt-8 flex justify-center gap-4">
+      <div className="mt-10 flex gap-3 print:hidden">
         <Button onClick={() => navigate("/student/dashboard")} variant="secondary">
-          Back to Dashboard
+          Back to dashboard
         </Button>
         {result.submitted_at && (
           <Button onClick={() => window.print()} variant="secondary">
-            Print Result
+            Print result
           </Button>
         )}
       </div>

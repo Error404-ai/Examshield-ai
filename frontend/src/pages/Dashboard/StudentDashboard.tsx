@@ -1,29 +1,17 @@
 /**
  * Student Dashboard Page
- * Greeting, stat cards, proctoring notice, and a filterable exam list.
+ * Greeting, stat strip, proctoring notice, and a filterable exam list.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
 import { studentService } from "../../services/examService";
 import { StudentStats, Exam, SessionStatus, UserRole } from "../../types";
 import { ExamCard } from "../../components/exam/ExamCard";
+import { StatStrip } from "../../components/common/Statstrip";
+import { Alert } from "../../components/common/Badge";
 import { useAuth } from "../../context/AuthContext";
 import { getErrorMessage } from "../../utils";
-
-const statCards: {
-  key: keyof StudentStats;
-  label: string;
-  hint: string;
-  number: string;
-  panel: string;
-}[] = [
-  { key: "available_exams", label: "Available", hint: "Published exams", number: "text-violet-300", panel: "glass-violet" },
-  { key: "attempted", label: "Attempted", hint: "Exams you've taken", number: "text-cyan-400", panel: "glass-cyan" },
-  { key: "passed", label: "Passed", hint: "Met the pass mark", number: "text-emerald-400", panel: "glass-emerald" },
-  { key: "failed", label: "Failed", hint: "Below the pass mark", number: "text-rose-400", panel: "glass-rose" },
-];
 
 type Filter = "all" | "todo" | "progress" | "done";
 
@@ -81,72 +69,57 @@ export const StudentDashboard: React.FC = () => {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-violet-400 border-t-transparent" />
-          <p className="text-sm text-slate-400">Loading your dashboard...</p>
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+          <p className="text-sm text-gray-500">Loading your dashboard</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="relative mx-auto max-w-7xl px-6 py-10">
-      <div className="pointer-events-none absolute -top-10 left-0 h-64 w-64 rounded-full bg-violet/15 blur-3xl" />
+    <div className="mx-auto max-w-5xl px-6 py-10">
+      <h1 className="font-display text-3xl font-semibold text-gray-900">Welcome back, {firstName}</h1>
+      <p className="mt-1 text-gray-500">Here&rsquo;s where your exams stand.</p>
 
-      {/* Header */}
-      <div className="relative mb-8">
-        <h1 className="font-display text-3xl font-bold text-slate-50">
-          Welcome back, <span className="text-gradient-violet">{firstName}</span>
-        </h1>
-        <p className="mt-1 text-slate-400">Here's where your exams stand.</p>
-      </div>
-
-      {/* Stats */}
       {stats && (
-        <div className="relative mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-          {statCards.map((c, i) => (
-            <motion.div
-              key={c.key}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.06 }}
-              className={`${c.panel} rounded-2xl p-5`}
-            >
-              <p className="text-sm font-medium text-slate-300">{c.label}</p>
-              <p className={`mt-2 font-display text-4xl font-bold ${c.number}`}>{stats[c.key]}</p>
-              <p className="mt-1 text-xs text-slate-500">{c.hint}</p>
-            </motion.div>
-          ))}
+        <div className="mt-8">
+          <StatStrip
+            items={[
+              { label: "Available", value: stats.available_exams },
+              { label: "Attempted", value: stats.attempted },
+              { label: "Passed", value: stats.passed },
+              { label: "Failed", value: stats.failed },
+            ]}
+          />
         </div>
       )}
 
-      {/* Proctoring notice */}
-      <div className="glass-amber relative mb-10 rounded-2xl p-4">
-        <p className="text-sm text-amber-300">
-          <span className="font-semibold">Proctored exams.</span> You'll need to allow your camera,
-          stay on the exam tab, and keep your face in view. Leaving the tab or going fullscreen-off is
-          recorded.
-        </p>
-      </div>
+      <p className="mt-8 border-l-2 border-amber-400 pl-4 text-sm leading-relaxed text-gray-700">
+        <strong className="font-medium text-gray-900">Exams are proctored.</strong> You&rsquo;ll need to allow your
+        camera, stay on the exam tab and in fullscreen, and keep your face in view. Leaving the tab or fullscreen is
+        recorded.
+      </p>
 
       {error && (
-        <div className="glass-rose mb-8 rounded-xl p-4">
-          <p className="text-sm text-rose-300">{error}</p>
+        <div className="mt-6">
+          <Alert variant="error">{error}</Alert>
         </div>
       )}
 
-      {/* Exams */}
-      <div className="relative mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-display text-xl font-semibold text-slate-100">Your exams</h2>
-        <div className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
+      <div className="mb-4 mt-10 flex flex-wrap items-end justify-between gap-3 border-b border-gray-200">
+        <h2 className="pb-2 font-display text-xl font-semibold text-gray-900">Your exams</h2>
+        <div className="flex gap-5" role="tablist" aria-label="Filter exams">
           {filters.map((f) => (
             <button
               key={f.id}
               type="button"
+              role="tab"
+              aria-selected={filter === f.id}
               onClick={() => setFilter(f.id)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              className={`-mb-px border-b-2 pb-2 text-sm font-medium transition-colors ${
                 filter === f.id
-                  ? "bg-violet/20 text-violet-300"
-                  : "text-slate-400 hover:text-slate-100"
+                  ? "border-indigo-600 text-gray-900"
+                  : "border-transparent text-gray-500 hover:text-gray-900"
               }`}
             >
               {f.label}
@@ -156,16 +129,16 @@ export const StudentDashboard: React.FC = () => {
       </div>
 
       {visible.length === 0 ? (
-        <div className="glass rounded-2xl p-10 text-center">
-          <p className="text-slate-300">
+        <div className="rounded-lg border border-dashed border-gray-300 px-6 py-12 text-center">
+          <p className="text-gray-700">
             {exams.length === 0 ? "No exams are available right now." : "No exams match this filter."}
           </p>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-gray-500">
             {exams.length === 0 ? "Check back when your instructor publishes one." : "Try another tab."}
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
           {visible.map((exam) => (
             <ExamCard
               key={exam._id}
@@ -174,7 +147,7 @@ export const StudentDashboard: React.FC = () => {
               onStart={() => navigate(`/student/exam/${exam._id}`)}
             />
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );
