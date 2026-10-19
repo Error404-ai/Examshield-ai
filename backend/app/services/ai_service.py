@@ -2,6 +2,9 @@
 AI Service
 Generates draft multiple-choice questions with the Google Gemini API.
 Set GEMINI_API_KEY (and optionally GEMINI_MODEL) in the environment.
+
+Google retires Gemini models often, so a retired model (HTTP 404) falls back
+to the next model in the list instead of breaking the generator.
 """
 
 import json
@@ -16,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_MODEL = "gemini-3.8-flash"
+# Tried in order after GEMINI_MODEL (if set). Update when Google retires models:
+# https://ai.google.dev/gemini-api/docs/deprecations
+FALLBACK_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash"]
 
 
 class AIUnavailable(Exception):
@@ -82,6 +88,22 @@ def _parse(text: str) -> List[Dict]:
     return [q for q in (_clean(item) for item in raw) if q]
 
 
+def _model_list() -> List[str]:
+    """GEMINI_MODEL first (if set), then the fallbacks, without duplicates"""
+    configured = os.getenv("GEMINI_MODEL", "").strip()
+    ordered = ([configured] if configured else []) + FALLBACK_MODELS
+    seen, models = set(), []
+    for m in ordered:
+        if m and m not in seen:
+            seen.add(m)
+            models.append(m)
+    return models
+
+
+async def _post(client: httpx.AsyncClient, model: str, headers: Dict, payload: Dict) -> httpx.Response:
+    return await client.post(f"{API_BASE}/{model}:generateContent", headers=headers, json=payload)
+
+
 async def generate_questions(
     topic: str,
     count: int,
@@ -89,7 +111,6 @@ async def generate_questions(
     context: str = "",
 ) -> List[Dict]:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
     if not api_key:
         raise AIUnavailable()
 
@@ -107,20 +128,56 @@ async def generate_questions(
         },
     }
     headers = {"x-goog-api-key": api_key, "content-type": "application/json"}
-    url = f"{API_BASE}/{model}:generateContent"
 
+    resp: Optional[httpx.Response] = None
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(url, headers=headers, json=payload)
+            for model in _model_list():
+                resp = await _post(client, model, headers, payload)
+
+                # Some models reject the thinking setting: retry once without it
+                if resp.status_code == 400 and "thinking" in resp.text.lower():
+                    logger.warning(f"{model} rejected thinkingConfig, retrying without it")
+                    lean = {
+                        **payload,
+                        "generationConfig": {
+                            k: v for k, v in payload["generationConfig"].items() if k != "thinkingConfig"
+                        },
+                    }
+                    resp = await _post(client, model, headers, lean)
+
+                # Model retired or renamed: try the next one
+                if resp.status_code == 404:
+                    logger.error(f"Gemini model '{model}' returned 404: {resp.text[:300]}")
+                    continue
+
+                logger.info(f"Gemini model used: {model} (status {resp.status_code})")
+                break
     except httpx.HTTPError as exc:
-        logger.error(f"AI request failed: {exc}")
+        logger.error(f"AI request failed: {exc!r}")
         raise AIGenerationError("Could not reach the AI service. Try again in a moment.")
 
-    if resp.status_code == 429:
-        raise AIGenerationError("AI rate limit reached. Wait a minute and try again.")
-    if resp.status_code != 200:
-        logger.error(f"AI service error {resp.status_code}: {resp.text[:300]}")
-        raise AIGenerationError(f"The AI service returned an error (status {resp.status_code}).")
+    if resp is None:
+        raise AIGenerationError("No AI model is configured.")
+
+    status = resp.status_code
+    if status != 200:
+        logger.error(f"AI service error {status}: {resp.text[:500]}")
+        if status == 404:
+            raise AIGenerationError(
+                "The configured AI model is no longer available. Update GEMINI_MODEL on the server."
+            )
+        if status in (400, 401, 403) and (
+            "api key" in resp.text.lower() or status in (401, 403)
+        ):
+            raise AIGenerationError(
+                "The AI service rejected the API key. Check GEMINI_API_KEY on the server."
+            )
+        if status == 429:
+            raise AIGenerationError("AI rate limit or quota reached. Wait a minute and try again.")
+        if status in (500, 503):
+            raise AIGenerationError("The AI service is busy right now. Try again in a moment.")
+        raise AIGenerationError(f"The AI service returned an error (status {status}).")
 
     candidates = resp.json().get("candidates") or []
     parts = (candidates[0].get("content", {}).get("parts", [])) if candidates else []
@@ -128,5 +185,6 @@ async def generate_questions(
 
     questions = _parse(text)
     if not questions:
+        logger.error(f"Unparseable AI reply: {text[:300]!r}")
         raise AIGenerationError("The AI response could not be understood. Please try again.")
     return questions[:count]

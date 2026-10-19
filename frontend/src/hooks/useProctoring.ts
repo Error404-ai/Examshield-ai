@@ -1,19 +1,24 @@
 /**
  * useProctoring Hook
- * Webcam + in-browser face analysis (MediaPipe Face Landmarker),
+ * Webcam + in-browser analysis (MediaPipe Face Landmarker + Object Detector),
  * tab-switch and fullscreen tracking. Only small events go to the server;
  * video frames never leave the browser.
  *
- * Duplicate-alert fixes:
- *  - every event type has a cooldown, including camera_blocked / tab_switch / fullscreen_exit
- *  - start() is guarded by a generation counter, so React StrictMode's
- *    mount -> unmount -> mount (or a double click) can't leave two live
- *    streams, each with its own "ended" listener
- *  - the camera "ended" listener is removed on stop()
+ * Fullscreen: browsers only allow requestFullscreen() from a user click, so the
+ * exam page must call enterFullscreen() from its "Start exam" button, and show
+ * a "Return to fullscreen" overlay (also a click) whenever isFullscreen is false.
+ *
+ * Phone detection: an object detector looks for a "cell phone" about once a
+ * second. It is a hint for the reviewer, not proof, so a phone has to be seen
+ * in consecutive checks before an alert is raised.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { FaceLandmarker, FaceLandmarkerResult } from "@mediapipe/tasks-vision";
+import type {
+  FaceLandmarker,
+  FaceLandmarkerResult,
+  ObjectDetector,
+} from "@mediapipe/tasks-vision";
 import { AlertSeverity, BehaviorAlert } from "../types";
 import { proctoringService, ProctorEventType } from "../services/proctoringService";
 
@@ -29,8 +34,10 @@ export type ModelState = "idle" | "loading" | "ready" | "error";
 
 const MEDIAPIPE_VERSION = "0.10.14"; // keep in sync with package.json
 const WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`;
-const MODEL_URL =
+const FACE_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const OBJECT_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
 
 const SAMPLE_MS = 500;
 
@@ -38,6 +45,16 @@ const SAMPLE_MS = 500;
 const CAMERA_COOLDOWN = 30000;
 const TAB_COOLDOWN = 2000; // some browsers fire visibilitychange twice on one switch
 const FULLSCREEN_COOLDOWN = 3000;
+
+// Phone detection
+const PHONE_EVERY_N_TICKS = 2; // 2 x 500ms = one check per second
+const PHONE_SAMPLES = 2; // consecutive positive checks before an alert
+const PHONE_COOLDOWN = 30000;
+const PHONE_SCORE = 0.35; // detector confidence threshold
+
+// Add "phone_detected" to the ProctorEventType union in proctoringService.ts,
+// then this double cast can be replaced with a plain string.
+const PHONE_EVENT = "phone_detected" as unknown as ProctorEventType;
 
 interface Rule {
   type: ProctorEventType;
@@ -114,29 +131,43 @@ export interface ProctoringHook {
   cameraReady: boolean;
   cameraError: string;
   modelState: ModelState;
+  phoneDetectorState: ModelState;
   faceStatus: FaceStatus;
   alerts: BehaviorAlert[];
   tabSwitchCount: number;
+  fullscreenSupported: boolean;
+  isFullscreen: boolean;
+  enterFullscreen: () => Promise<boolean>;
 }
 
 export function useProctoring(sessionId: string): ProctoringHook {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const landmarkerRef = useRef<FaceLandmarker | null>(null);
+  const detectorRef = useRef<ObjectDetector | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const runningRef = useRef(false);
   const generationRef = useRef(0); // bumped by every stop(); stale start() calls bail out
   const endedCleanupRef = useRef<(() => void) | null>(null);
   const wasFullscreenRef = useRef(false);
+  const tickCountRef = useRef(0);
+  const phoneStreakRef = useRef(0);
   const streakRef = useRef<{ status: FaceStatus; count: number }>({ status: "ok", count: 0 });
   const lastSentRef = useRef<Record<string, number>>({});
+
+  const fullscreenSupported =
+    typeof document !== "undefined" && !!document.documentElement.requestFullscreen;
 
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [modelState, setModelState] = useState<ModelState>("idle");
+  const [phoneDetectorState, setPhoneDetectorState] = useState<ModelState>("idle");
   const [faceStatus, setFaceStatus] = useState<FaceStatus>("idle");
   const [alerts, setAlerts] = useState<BehaviorAlert[]>([]);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(
+    typeof document !== "undefined" && !!document.fullscreenElement
+  );
 
   // Record an event locally and send it to the server (fire and forget).
   // The cooldown is checked per event type, so repeats inside the window are dropped.
@@ -161,6 +192,46 @@ export function useProctoring(sessionId: string): ProctoringHook {
     [sessionId]
   );
 
+  // Must be called from a click handler (browsers block it otherwise).
+  const enterFullscreen = useCallback(async (): Promise<boolean> => {
+    if (!document.documentElement.requestFullscreen) return false;
+    try {
+      if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // Look for a phone in the current frame
+  const checkPhone = useCallback(
+    (video: HTMLVideoElement) => {
+      const detector = detectorRef.current;
+      if (!detector) return;
+
+      let found = false;
+      try {
+        const res = detector.detectForVideo(video, performance.now());
+        found = res.detections.some((d) =>
+          d.categories.some((c) => c.categoryName === "cell phone")
+        );
+      } catch {
+        return;
+      }
+
+      phoneStreakRef.current = found ? phoneStreakRef.current + 1 : 0;
+      if (phoneStreakRef.current >= PHONE_SAMPLES) {
+        emit(
+          PHONE_EVENT,
+          AlertSeverity.HIGH,
+          "Mobile phone detected in the camera",
+          PHONE_COOLDOWN
+        );
+      }
+    },
+    [emit]
+  );
+
   // One analysis pass over the current video frame
   const tick = useCallback(() => {
     const video = videoRef.current;
@@ -176,6 +247,9 @@ export function useProctoring(sessionId: string): ProctoringHook {
 
     setFaceStatus((prev) => (prev === status ? prev : status));
 
+    tickCountRef.current += 1;
+    if (tickCountRef.current % PHONE_EVERY_N_TICKS === 0) checkPhone(video);
+
     const streak = streakRef.current;
     if (streak.status === status) streak.count += 1;
     else {
@@ -188,7 +262,7 @@ export function useProctoring(sessionId: string): ProctoringHook {
     if (streak.count >= rule.samples) {
       emit(rule.type, rule.severity, rule.description, rule.cooldownMs);
     }
-  }, [emit]);
+  }, [emit, checkPhone]);
 
   const stop = useCallback(() => {
     generationRef.current += 1; // invalidates any start() still awaiting something
@@ -201,6 +275,10 @@ export function useProctoring(sessionId: string): ProctoringHook {
     streamRef.current = null;
     landmarkerRef.current?.close();
     landmarkerRef.current = null;
+    detectorRef.current?.close();
+    detectorRef.current = null;
+    phoneStreakRef.current = 0;
+    tickCountRef.current = 0;
     setCameraReady(false);
   }, []);
 
@@ -258,15 +336,28 @@ export function useProctoring(sessionId: string): ProctoringHook {
     if (isStale()) return;
     setCameraReady(true);
 
-    // 2) Face model (downloaded once, then cached by the browser)
+    // 2) Models (downloaded once, then cached by the browser)
     setModelState("loading");
-    try {
-      const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
-      const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
+    setPhoneDetectorState("loading");
 
+    let vision: typeof import("@mediapipe/tasks-vision");
+    let fileset: Awaited<ReturnType<(typeof import("@mediapipe/tasks-vision"))["FilesetResolver"]["forVisionTasks"]>>;
+    try {
+      vision = await import("@mediapipe/tasks-vision");
+      fileset = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    } catch (err) {
+      if (isStale()) return;
+      console.error("[ExamShield] MediaPipe failed to load", err);
+      setModelState("error");
+      setPhoneDetectorState("error");
+      return;
+    }
+
+    // 2a) Face model
+    try {
       const create = (delegate: "GPU" | "CPU") =>
-        FaceLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: MODEL_URL, delegate },
+        vision.FaceLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: FACE_MODEL_URL, delegate },
           runningMode: "VIDEO",
           numFaces: 2,
           outputFaceBlendshapes: true,
@@ -291,6 +382,36 @@ export function useProctoring(sessionId: string): ProctoringHook {
       console.error("[ExamShield] Face model failed to load", err);
       setModelState("error");
     }
+
+    // 2b) Phone detector. If it fails, face monitoring keeps working without it.
+    try {
+      const createDetector = (delegate: "GPU" | "CPU") =>
+        vision.ObjectDetector.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: OBJECT_MODEL_URL, delegate },
+          runningMode: "VIDEO",
+          scoreThreshold: PHONE_SCORE,
+          categoryAllowlist: ["cell phone"],
+          maxResults: 3,
+        });
+
+      let detector: ObjectDetector;
+      try {
+        detector = await createDetector("GPU");
+      } catch {
+        detector = await createDetector("CPU");
+      }
+
+      if (isStale()) {
+        detector.close();
+        return;
+      }
+      detectorRef.current = detector;
+      setPhoneDetectorState("ready");
+    } catch (err) {
+      if (isStale()) return;
+      console.error("[ExamShield] Phone detector failed to load", err);
+      setPhoneDetectorState("error");
+    }
   }, [emit, tick]);
 
   // Tab switches
@@ -305,10 +426,12 @@ export function useProctoring(sessionId: string): ProctoringHook {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [emit]);
 
-  // Leaving fullscreen
+  // Fullscreen: track state, log exits
   useEffect(() => {
     const onFullscreen = () => {
-      if (document.fullscreenElement) {
+      const active = !!document.fullscreenElement;
+      setIsFullscreen(active);
+      if (active) {
         wasFullscreenRef.current = true;
       } else if (wasFullscreenRef.current) {
         wasFullscreenRef.current = false;
@@ -338,7 +461,7 @@ export function useProctoring(sessionId: string): ProctoringHook {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      wasFullscreenRef.current = false;
+      wasFullscreenRef.current = false; // leaving the page is not a violation
       stop();
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     };
@@ -351,8 +474,12 @@ export function useProctoring(sessionId: string): ProctoringHook {
     cameraReady,
     cameraError,
     modelState,
+    phoneDetectorState,
     faceStatus,
     alerts,
     tabSwitchCount,
+    fullscreenSupported,
+    isFullscreen,
+    enterFullscreen,
   };
 }
