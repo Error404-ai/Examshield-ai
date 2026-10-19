@@ -50,7 +50,10 @@ const FULLSCREEN_COOLDOWN = 3000;
 const PHONE_EVERY_N_TICKS = 2; // 2 x 500ms = one check per second
 const PHONE_SAMPLES = 2; // consecutive positive checks before an alert
 const PHONE_COOLDOWN = 30000;
-const PHONE_SCORE = 0.35; // detector confidence threshold
+const PHONE_SCORE = 0.25; // detector confidence threshold (lower = more sensitive)
+// Open the exam page with ?debug=1 to log phone-detector results in the console
+const PHONE_DEBUG =
+  typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug");
 
 // Add "phone_detected" to the ProctorEventType union in proctoringService.ts,
 // then this double cast can be replaced with a plain string.
@@ -215,6 +218,15 @@ export function useProctoring(sessionId: string): ProctoringHook {
         found = res.detections.some((d) =>
           d.categories.some((c) => c.categoryName === "cell phone")
         );
+        if (PHONE_DEBUG) {
+          const best = Math.max(
+            0,
+            ...res.detections.flatMap((d) => d.categories.map((c) => c.score))
+          );
+          console.debug(
+            `[ExamShield] phone check: ${found ? "FOUND" : "none"} (best score ${best.toFixed(2)})`
+          );
+        }
       } catch {
         return;
       }
@@ -299,8 +311,10 @@ export function useProctoring(sessionId: string): ProctoringHook {
     } catch {
       if (isStale()) return; // a newer start() or stop() owns the state now
       runningRef.current = false;
+      // Not logged as a violation: the exam page must not begin until the camera works,
+      // so a failed start is a setup problem, not cheating. Only a camera that stops
+      // after it was running (the "ended" listener below) is recorded.
       setCameraError("Camera access is required for this exam. Allow the camera and try again.");
-      emit("camera_blocked", AlertSeverity.HIGH, "Camera access denied or unavailable", CAMERA_COOLDOWN);
       return;
     }
 
