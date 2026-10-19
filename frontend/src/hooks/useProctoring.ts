@@ -3,6 +3,13 @@
  * Webcam + in-browser face analysis (MediaPipe Face Landmarker),
  * tab-switch and fullscreen tracking. Only small events go to the server;
  * video frames never leave the browser.
+ *
+ * Duplicate-alert fixes:
+ *  - every event type has a cooldown, including camera_blocked / tab_switch / fullscreen_exit
+ *  - start() is guarded by a generation counter, so React StrictMode's
+ *    mount -> unmount -> mount (or a double click) can't leave two live
+ *    streams, each with its own "ended" listener
+ *  - the camera "ended" listener is removed on stop()
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -26,6 +33,11 @@ const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
 const SAMPLE_MS = 500;
+
+// Cooldowns (ms) for events that don't come from the face rules below
+const CAMERA_COOLDOWN = 30000;
+const TAB_COOLDOWN = 2000; // some browsers fire visibilitychange twice on one switch
+const FULLSCREEN_COOLDOWN = 3000;
 
 interface Rule {
   type: ProctorEventType;
@@ -113,6 +125,8 @@ export function useProctoring(sessionId: string): ProctoringHook {
   const landmarkerRef = useRef<FaceLandmarker | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const runningRef = useRef(false);
+  const generationRef = useRef(0); // bumped by every stop(); stale start() calls bail out
+  const endedCleanupRef = useRef<(() => void) | null>(null);
   const wasFullscreenRef = useRef(false);
   const streakRef = useRef<{ status: FaceStatus; count: number }>({ status: "ok", count: 0 });
   const lastSentRef = useRef<Record<string, number>>({});
@@ -124,12 +138,13 @@ export function useProctoring(sessionId: string): ProctoringHook {
   const [alerts, setAlerts] = useState<BehaviorAlert[]>([]);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
 
-  // Record an event locally and send it to the server (fire and forget)
+  // Record an event locally and send it to the server (fire and forget).
+  // The cooldown is checked per event type, so repeats inside the window are dropped.
   const emit = useCallback(
     (type: ProctorEventType, severity: AlertSeverity, description: string, cooldownMs = 0) => {
       const now = Date.now();
       const last = lastSentRef.current[type] ?? 0;
-      if (now - last < cooldownMs) return;
+      if (now - last < cooldownMs) return false;
       lastSentRef.current[type] = now;
 
       const alert: BehaviorAlert = {
@@ -141,6 +156,7 @@ export function useProctoring(sessionId: string): ProctoringHook {
       };
       setAlerts((prev) => [...prev.slice(-49), alert]);
       proctoringService.logEvent(sessionId, { alert_type: type, severity, description }).catch(() => {});
+      return true;
     },
     [sessionId]
   );
@@ -175,7 +191,10 @@ export function useProctoring(sessionId: string): ProctoringHook {
   }, [emit]);
 
   const stop = useCallback(() => {
+    generationRef.current += 1; // invalidates any start() still awaiting something
     runningRef.current = false;
+    endedCleanupRef.current?.(); // remove the "ended" listener before stopping tracks
+    endedCleanupRef.current = null;
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -189,37 +208,55 @@ export function useProctoring(sessionId: string): ProctoringHook {
     if (runningRef.current) return;
     runningRef.current = true;
     setCameraError("");
+    const gen = generationRef.current;
+    const isStale = () => gen !== generationRef.current;
 
     // 1) Camera
+    let stream: MediaStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: "user" },
         audio: false,
       });
-      if (!runningRef.current) {
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      streamRef.current = stream;
-      stream.getVideoTracks()[0]?.addEventListener("ended", () => {
-        emit("camera_blocked", AlertSeverity.HIGH, "Camera was turned off or disconnected");
-        setCameraError("Your camera was disconnected. Reconnect it to continue.");
-        setCameraReady(false);
-        runningRef.current = false;
-      });
-
-      const video = videoRef.current;
-      if (video) {
-        video.srcObject = stream;
-        await video.play().catch(() => {});
-      }
-      setCameraReady(true);
     } catch {
+      if (isStale()) return; // a newer start() or stop() owns the state now
       runningRef.current = false;
       setCameraError("Camera access is required for this exam. Allow the camera and try again.");
-      emit("camera_blocked", AlertSeverity.HIGH, "Camera access denied or unavailable");
+      emit("camera_blocked", AlertSeverity.HIGH, "Camera access denied or unavailable", CAMERA_COOLDOWN);
       return;
     }
+
+    if (isStale()) {
+      // stop() ran while the permission prompt was open: release this stream
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    streamRef.current = stream;
+
+    const track = stream.getVideoTracks()[0];
+    if (track) {
+      const onEnded = () => {
+        if (isStale() || streamRef.current !== stream) return;
+        emit("camera_blocked", AlertSeverity.HIGH, "Camera was turned off or disconnected", CAMERA_COOLDOWN);
+        setCameraError("Your camera was disconnected. Reconnect it to continue.");
+        setCameraReady(false);
+        setFaceStatus("idle");
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = null;
+        runningRef.current = false; // lets start() be called again after reconnecting
+      };
+      track.addEventListener("ended", onEnded);
+      endedCleanupRef.current = () => track.removeEventListener("ended", onEnded);
+    }
+
+    const video = videoRef.current;
+    if (video) {
+      video.srcObject = stream;
+      await video.play().catch(() => {});
+    }
+    if (isStale()) return;
+    setCameraReady(true);
 
     // 2) Face model (downloaded once, then cached by the browser)
     setModelState("loading");
@@ -242,7 +279,7 @@ export function useProctoring(sessionId: string): ProctoringHook {
         landmarker = await create("CPU");
       }
 
-      if (!runningRef.current) {
+      if (isStale()) {
         landmarker.close();
         return;
       }
@@ -250,6 +287,7 @@ export function useProctoring(sessionId: string): ProctoringHook {
       setModelState("ready");
       timerRef.current = setInterval(tick, SAMPLE_MS);
     } catch (err) {
+      if (isStale()) return;
       console.error("[ExamShield] Face model failed to load", err);
       setModelState("error");
     }
@@ -259,8 +297,9 @@ export function useProctoring(sessionId: string): ProctoringHook {
   useEffect(() => {
     const onVisibility = () => {
       if (!document.hidden) return;
-      setTabSwitchCount((n) => n + 1);
-      emit("tab_switch", AlertSeverity.MEDIUM, "Student left the exam tab");
+      // count only events that pass the cooldown, so the counter matches the alerts
+      const sent = emit("tab_switch", AlertSeverity.MEDIUM, "Student left the exam tab", TAB_COOLDOWN);
+      if (sent) setTabSwitchCount((n) => n + 1);
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
@@ -273,7 +312,7 @@ export function useProctoring(sessionId: string): ProctoringHook {
         wasFullscreenRef.current = true;
       } else if (wasFullscreenRef.current) {
         wasFullscreenRef.current = false;
-        emit("fullscreen_exit", AlertSeverity.MEDIUM, "Student exited fullscreen mode");
+        emit("fullscreen_exit", AlertSeverity.MEDIUM, "Student exited fullscreen mode", FULLSCREEN_COOLDOWN);
       }
     };
     document.addEventListener("fullscreenchange", onFullscreen);
