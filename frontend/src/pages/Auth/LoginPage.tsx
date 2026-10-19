@@ -43,25 +43,23 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-grid p-4">
-      <div className="pointer-events-none absolute -top-32 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-violet/25 blur-3xl" />
-
-      <div className="relative w-full max-w-md">
-        {/* Logo */}
+    <div className="flex min-h-screen items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <Link to="/" className="inline-block">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-violet to-cyan shadow-glow-violet">
-              <span className="font-display text-xl font-bold text-white">ES</span>
-            </div>
+          <Link
+            to="/"
+            className="font-display text-xl font-semibold tracking-tight text-gray-900"
+          >
+            ExamShield
           </Link>
-          <h1 className="font-display text-2xl font-bold text-slate-50">Welcome back</h1>
-          <p className="mt-1 text-sm text-slate-400">Sign in to ExamShield AI</p>
+          <h1 className="mt-6 font-display text-3xl font-semibold text-gray-900">Welcome back</h1>
+          <p className="mt-1 text-sm text-gray-500">Sign in to continue to your exams.</p>
         </div>
 
         {isLoading ? null : user ? (
           <AlreadySignedIn user={user} onSignOut={logout} />
         ) : (
-          <div className="glass-strong flex flex-col gap-5 rounded-2xl p-8 shadow-glass-lg">
+          <div className="flex flex-col gap-5 rounded-lg border border-gray-200 bg-white p-8 shadow-md">
             {error && <Alert variant="error">{error}</Alert>}
 
             <Input
@@ -83,12 +81,12 @@ export const LoginPage: React.FC = () => {
             />
 
             <Button onClick={handleSubmit} loading={loading} size="lg" className="mt-1 w-full">
-              Sign In
+              Sign in
             </Button>
 
-            <p className="text-center text-sm text-slate-400">
-              Don't have an account?{" "}
-              <Link to="/register" className="font-medium text-violet-400 hover:text-violet-300">
+            <p className="text-center text-sm text-gray-500">
+              Don&rsquo;t have an account?{" "}
+              <Link to="/register" className="font-medium text-indigo-700 hover:text-indigo-900">
                 Register
               </Link>
             </p>

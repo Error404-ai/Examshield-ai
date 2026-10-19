@@ -29,9 +29,9 @@ const emptyQuestion = (): DraftQuestion => ({
 });
 
 const inputClass =
-  "w-full rounded-xl border border-white/10 bg-navy-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-violet/60 focus:outline-none";
+  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-600/20";
 
-const labelClass = "mb-1 block text-sm font-medium text-slate-300";
+const labelClass = "mb-1 block text-sm font-medium text-gray-800";
 
 const isBlank = (q: DraftQuestion) => !q.text.trim() && q.options.every((o) => !o.trim());
 
@@ -240,28 +240,28 @@ export const CreateExamPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-violet border-t-transparent" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
       </div>
     );
   }
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
-      <h1 className="font-display text-3xl font-bold text-slate-50">{isEdit ? "Edit Exam" : "Create Exam"}</h1>
-      <p className="mb-6 mt-1 text-slate-400">
+      <h1 className="font-display text-3xl font-semibold text-gray-900">{isEdit ? "Edit Exam" : "Create Exam"}</h1>
+      <p className="mb-6 mt-1 text-gray-500">
         {isEdit
           ? "Update details, edit or remove questions, or add new ones"
           : "Set up the exam details and add multiple-choice questions"}
       </p>
 
       {error && (
-        <div className="glass-rose mb-6 rounded-xl p-4">
-          <p className="text-sm text-rose-300">{error}</p>
+        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
+          <p className="text-sm text-red-800">{error}</p>
         </div>
       )}
 
       {/* Details */}
-      <div className="glass mb-6 flex flex-col gap-4 rounded-2xl p-6">
+      <div className="mb-6 flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-6">
         <div>
           <label className={labelClass}>Title</label>
           <input
@@ -306,15 +306,15 @@ export const CreateExamPage: React.FC = () => {
       </div>
 
       {/* AI generator */}
-      <div className="glass-violet mb-6 rounded-2xl p-6">
+      <div className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50/50 p-6">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-display text-lg font-semibold text-slate-100">Generate with AI</h2>
-            <p className="text-sm text-slate-400">
+            <h2 className="font-display text-lg font-semibold text-gray-900">Generate with AI</h2>
+            <p className="text-sm text-gray-500">
               Draft multiple-choice questions, then review and edit them below.
             </p>
           </div>
-          <span className="rounded-full border border-violet/30 bg-violet/10 px-2.5 py-0.5 text-xs font-medium text-violet-300">
+          <span className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800">
             AI
           </span>
         </div>
@@ -345,7 +345,7 @@ export const CreateExamPage: React.FC = () => {
             </div>
             <div>
               <label className={labelClass}>Difficulty</label>
-              <div className="flex gap-1 rounded-xl border border-white/10 bg-navy-800 p-1">
+              <div className="flex gap-1 rounded-lg border border-gray-300 bg-white p-1">
                 {DIFFICULTIES.map((d) => (
                   <button
                     key={d.id}
@@ -353,8 +353,8 @@ export const CreateExamPage: React.FC = () => {
                     onClick={() => setAiDifficulty(d.id)}
                     className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                       aiDifficulty === d.id
-                        ? "bg-violet/25 text-violet-200"
-                        : "text-slate-400 hover:text-slate-100"
+                        ? "bg-indigo-600 text-white"
+                        : "text-gray-600 hover:text-gray-900"
                     }`}
                   >
                     {d.label}
@@ -366,7 +366,7 @@ export const CreateExamPage: React.FC = () => {
 
           <div>
             <label className={labelClass}>
-              Study material <span className="font-normal text-slate-500">(optional)</span>
+              Study material <span className="font-normal text-gray-500">(optional)</span>
             </label>
             <textarea
               className={inputClass}
@@ -376,17 +376,17 @@ export const CreateExamPage: React.FC = () => {
               onChange={(e) => setAiContext(e.target.value)}
               placeholder="Paste notes or a passage. Questions will be based only on this text."
             />
-            <p className="mt-1 text-right text-xs text-slate-500">{aiContext.length} / 6000</p>
+            <p className="mt-1 text-right text-xs text-gray-500">{aiContext.length} / 6000</p>
           </div>
 
           {aiError && (
-            <div className="glass-rose rounded-xl p-3">
-              <p className="text-sm text-rose-300">{aiError}</p>
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+              <p className="text-sm text-red-800">{aiError}</p>
             </div>
           )}
           {aiNote && (
-            <div className="glass-emerald rounded-xl p-3">
-              <p className="text-sm text-emerald-300">{aiNote}</p>
+            <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+              <p className="text-sm text-green-800">{aiNote}</p>
             </div>
           )}
 
@@ -395,7 +395,7 @@ export const CreateExamPage: React.FC = () => {
               type="button"
               disabled={aiLoading}
               onClick={handleGenerate}
-              className="rounded-xl bg-violet px-5 py-2 text-sm font-medium text-white transition-all hover:bg-violet-400 hover:shadow-glow-violet disabled:opacity-50"
+              className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
             >
               {aiLoading ? "Generating... this can take up to a minute" : "Generate questions"}
             </button>
@@ -405,19 +405,19 @@ export const CreateExamPage: React.FC = () => {
 
       {/* Questions */}
       <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="font-display text-xl font-bold text-slate-100">Questions ({questions.length})</h2>
-        <p className="text-sm text-slate-400">
+        <h2 className="font-display text-xl font-semibold text-gray-900">Questions ({questions.length})</h2>
+        <p className="text-sm text-gray-500">
           Total marks: {questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0)}
         </p>
       </div>
       <div className="mb-4 flex flex-col gap-4">
         {questions.map((q, qi) => (
-          <div key={q.id ?? `new-${qi}`} className="glass flex flex-col gap-3 rounded-2xl p-5">
+          <div key={q.id ?? `new-${qi}`} className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-5">
             <div className="flex items-center justify-between">
-              <p className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+              <p className="flex items-center gap-2 text-sm font-semibold text-gray-900">
                 Question {qi + 1}
                 {q.ai && (
-                  <span className="rounded-full border border-violet/30 bg-violet/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-300">
+                  <span className="rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-800">
                     AI draft
                   </span>
                 )}
@@ -425,7 +425,7 @@ export const CreateExamPage: React.FC = () => {
               {questions.length > 1 && (
                 <button
                   type="button"
-                  className="text-sm text-rose-400 hover:text-rose-300"
+                  className="text-sm font-medium text-red-700 hover:text-red-900"
                   onClick={() => removeQuestion(qi)}
                 >
                   Remove
@@ -447,7 +447,7 @@ export const CreateExamPage: React.FC = () => {
                   checked={q.correct === oi}
                   onChange={() => updateQuestion(qi, { correct: oi })}
                   title="Mark as correct answer"
-                  className="accent-violet"
+                  className="accent-indigo-600"
                 />
                 <input
                   className={inputClass}
@@ -458,19 +458,19 @@ export const CreateExamPage: React.FC = () => {
               </div>
             ))}
             <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-400">Marks</label>
+              <label className="text-sm text-gray-600">Marks</label>
               <input
                 type="number"
                 min={1}
-                className="w-20 rounded-xl border border-white/10 bg-navy-800 px-3 py-2 text-sm text-slate-100 focus:border-violet/60 focus:outline-none"
+                className="w-20 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-600/20"
                 value={q.marks}
                 onChange={(e) => updateQuestion(qi, { marks: Number(e.target.value) })}
               />
-              <span className="ml-2 text-xs text-slate-500">Select the radio button next to the correct option</span>
+              <span className="ml-2 text-xs text-gray-500">Select the radio button next to the correct option</span>
             </div>
             {q.explanation && (
-              <p className="rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-400">
-                <span className="font-medium text-slate-300">Why: </span>
+              <p className="rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                <span className="font-medium text-gray-800">Why: </span>
                 {q.explanation}
               </p>
             )}
@@ -480,26 +480,26 @@ export const CreateExamPage: React.FC = () => {
 
       <button
         type="button"
-        className="mb-8 rounded-xl border border-dashed border-white/20 px-4 py-2 text-sm text-slate-400 transition-colors hover:bg-white/5 hover:text-slate-200"
+        className="mb-8 rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
         onClick={() => setQuestions((qs) => [...qs, emptyQuestion()])}
       >
         + Add question
       </button>
 
       <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2 text-sm text-slate-300">
+        <label className="flex items-center gap-2 text-sm text-gray-800">
           <input
             type="checkbox"
             checked={publish}
             onChange={(e) => setPublish(e.target.checked)}
-            className="accent-violet"
+            className="accent-indigo-600"
           />
           {isEdit ? "Published (students can see it)" : "Publish immediately (students can see it)"}
         </label>
         <div className="flex gap-3">
           <button
             type="button"
-            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition-colors hover:bg-white/10"
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-800 transition-colors hover:bg-gray-50"
             onClick={() => navigate("/admin/dashboard")}
           >
             Cancel
@@ -507,7 +507,7 @@ export const CreateExamPage: React.FC = () => {
           <button
             type="button"
             disabled={saving}
-            className="rounded-xl bg-violet px-5 py-2 text-sm font-medium text-white transition-all hover:bg-violet-400 hover:shadow-glow-violet disabled:opacity-50"
+            className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
             onClick={handleSubmit}
           >
             {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Exam"}

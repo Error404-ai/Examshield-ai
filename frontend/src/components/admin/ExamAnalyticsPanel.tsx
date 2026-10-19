@@ -5,23 +5,22 @@
 
 import React, { useEffect, useState } from "react";
 import { adminService, ExamAnalytics } from "../../services/examService";
+import { Alert } from "../common/Badge";
 import { getErrorMessage } from "../../utils";
 
-const Card: React.FC<{ label: string; value: string | number; color: string; hint?: string }> = ({
+const Stat: React.FC<{ label: string; value: string | number; hint?: string }> = ({
   label,
   value,
-  color,
   hint,
 }) => (
-  <div className="glass rounded-2xl p-5">
-    <p className="text-sm text-slate-400">{label}</p>
-    <p className={`mt-1 font-display text-3xl font-bold ${color}`}>{value}</p>
-    {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
+  <div className="border-gray-200 px-5 py-4 sm:border-l sm:first:border-l-0">
+    <dt className="text-sm text-gray-500">{label}</dt>
+    <dd className="mt-1 font-display text-2xl font-semibold tabular-nums text-gray-900">{value}</dd>
+    {hint && <p className="mt-0.5 text-xs text-gray-500">{hint}</p>}
   </div>
 );
 
-const pctColor = (pct: number) =>
-  pct < 40 ? "bg-rose" : pct < 70 ? "bg-amber" : "bg-emerald";
+const pctBar = (pct: number) => (pct < 40 ? "bg-red-500" : pct < 70 ? "bg-amber-500" : "bg-green-600");
 
 export const ExamAnalyticsPanel: React.FC<{ examId: string }> = ({ examId }) => {
   const [data, setData] = useState<ExamAnalytics | null>(null);
@@ -43,23 +42,19 @@ export const ExamAnalyticsPanel: React.FC<{ examId: string }> = ({ examId }) => 
   if (loading) {
     return (
       <div className="flex justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-violet border-t-transparent" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
       </div>
     );
   }
 
   if (error || !data) {
-    return (
-      <div className="glass-rose rounded-xl p-4">
-        <p className="text-sm text-rose-300">{error || "Could not load analytics"}</p>
-      </div>
-    );
+    return <Alert variant="error">{error || "Could not load analytics"}</Alert>;
   }
 
   if (data.attempts === 0) {
     return (
-      <div className="glass rounded-2xl p-8 text-center">
-        <p className="text-slate-400">Analytics will appear once students have submitted this exam.</p>
+      <div className="rounded-lg border border-dashed border-gray-300 px-6 py-12 text-center text-gray-600">
+        Analytics will appear once students have submitted this exam.
       </div>
     );
   }
@@ -67,79 +62,78 @@ export const ExamAnalyticsPanel: React.FC<{ examId: string }> = ({ examId }) => 
   const maxCount = Math.max(...data.distribution.map((b) => b.count), 1);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       {/* Summary */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Card label="Submissions" value={data.attempts} color="text-violet-300" />
-        <Card
+      <dl className="grid grid-cols-2 gap-y-4 rounded-lg border border-gray-200 bg-white sm:grid-cols-4 sm:gap-y-0">
+        <Stat label="Submissions" value={data.attempts} />
+        <Stat
           label="Pass rate"
           value={`${data.pass_rate}%`}
-          color="text-emerald-400"
           hint={`${data.passed} passed · ${data.failed} failed`}
         />
-        <Card
+        <Stat
           label="Average score"
           value={`${data.average_score}%`}
-          color="text-cyan-400"
           hint={`Range ${data.lowest}% – ${data.highest}%`}
         />
-        <Card
+        <Stat
           label="Avg. time taken"
           value={`${data.average_minutes} min`}
-          color="text-amber-400"
           hint={`${data.flagged_sessions} session${data.flagged_sessions === 1 ? "" : "s"} with high/critical alerts`}
         />
-      </div>
+      </dl>
 
       {/* Distribution */}
-      <div className="glass rounded-2xl p-6">
-        <h3 className="mb-4 font-display text-lg font-bold text-slate-100">Score distribution</h3>
+      <section className="rounded-lg border border-gray-200 bg-white p-6">
+        <h3 className="mb-4 font-display text-lg font-semibold text-gray-900">Score distribution</h3>
         <div className="flex h-44 items-end gap-2">
           {data.distribution.map((b) => (
             <div key={b.label} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
-              <span className="text-xs tabular-nums text-slate-400">{b.count > 0 ? b.count : ""}</span>
+              <span className="text-xs tabular-nums text-gray-500">{b.count > 0 ? b.count : ""}</span>
               <div
-                className="w-full rounded-t-md bg-gradient-to-t from-violet to-cyan"
-                style={{ height: `${(b.count / maxCount) * 100}%`, minHeight: b.count > 0 ? 4 : 2, opacity: b.count > 0 ? 1 : 0.2 }}
+                className="w-full rounded-t bg-indigo-600"
+                style={{
+                  height: `${(b.count / maxCount) * 100}%`,
+                  minHeight: b.count > 0 ? 4 : 2,
+                  opacity: b.count > 0 ? 1 : 0.15,
+                }}
               />
-              <span className="text-[10px] text-slate-500">{b.label}</span>
+              <span className="text-[10px] text-gray-500">{b.label}</span>
             </div>
           ))}
         </div>
-        <p className="mt-2 text-center text-xs text-slate-500">Score (%)</p>
-      </div>
+        <p className="mt-2 text-center text-xs text-gray-500">Score (%)</p>
+      </section>
 
       {/* Questions */}
-      <div className="glass rounded-2xl p-6">
-        <h3 className="mb-1 font-display text-lg font-bold text-slate-100">Question difficulty</h3>
-        <p className="mb-4 text-sm text-slate-500">
-          Share of students who answered correctly. Hardest questions first; very low scores can
-          point to an unclear question or a wrong answer key.
+      <section>
+        <h3 className="font-display text-lg font-semibold text-gray-900">Question difficulty</h3>
+        <p className="mb-4 mt-1 text-sm text-gray-500">
+          Share of students who answered correctly. Hardest questions first; very low scores can point
+          to an unclear question or a wrong answer key.
         </p>
-        <div className="flex flex-col gap-3">
+        <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
           {data.questions.map((q, i) => (
-            <div key={q.question_id} className="rounded-xl bg-white/5 p-4">
+            <li key={q.question_id} className="px-5 py-4">
               <div className="mb-2 flex items-start justify-between gap-3">
-                <p className="text-sm text-slate-200">
-                  <span className="text-slate-500">{i + 1}.</span> {q.question_text}
+                <p className="text-sm text-gray-800">
+                  <span className="text-gray-400">{i + 1}.</span> {q.question_text}
                 </p>
-                <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-100">
+                <span className="shrink-0 text-sm font-semibold tabular-nums text-gray-900">
                   {q.correct_pct}%
                 </span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-white/10">
+              <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
                 <div
-                  className={`h-full ${pctColor(q.correct_pct)}`}
+                  className={`h-full ${pctBar(q.correct_pct)}`}
                   style={{ width: `${Math.max(q.correct_pct, 2)}%` }}
                 />
               </div>
-              {q.skipped > 0 && (
-                <p className="mt-1.5 text-xs text-slate-500">{q.skipped} skipped</p>
-              )}
-            </div>
+              {q.skipped > 0 && <p className="mt-1.5 text-xs text-gray-500">{q.skipped} skipped</p>}
+            </li>
           ))}
-        </div>
-      </div>
+        </ul>
+      </section>
     </div>
   );
 };

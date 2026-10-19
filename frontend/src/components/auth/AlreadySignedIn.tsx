@@ -18,11 +18,11 @@ export const AlreadySignedIn: React.FC<Props> = ({ user, onSignOut }) => {
   const home = user.role === UserRole.ADMIN ? "/admin/dashboard" : "/student/dashboard";
 
   return (
-    <div className="glass-strong flex flex-col gap-5 rounded-2xl p-8 text-center shadow-glass-lg">
+    <div className="flex flex-col gap-5 rounded-lg border border-gray-200 bg-white p-8 text-center shadow-md">
       <div>
-        <p className="text-sm text-slate-400">You're already signed in as</p>
-        <p className="mt-1 text-lg font-semibold text-slate-100">{user.name}</p>
-        <p className="text-xs capitalize text-slate-500">
+        <p className="text-sm text-gray-500">You&rsquo;re already signed in as</p>
+        <p className="mt-1 font-display text-lg font-semibold text-gray-900">{user.name}</p>
+        <p className="text-xs capitalize text-gray-500">
           {user.email} · {user.role}
         </p>
       </div>
@@ -36,7 +36,7 @@ export const AlreadySignedIn: React.FC<Props> = ({ user, onSignOut }) => {
       <button
         type="button"
         onClick={onSignOut}
-        className="text-sm font-medium text-violet-400 transition-colors hover:text-violet-300"
+        className="text-sm font-medium text-indigo-700 transition-colors hover:text-indigo-900"
       >
         Sign out and use a different account
       </button>

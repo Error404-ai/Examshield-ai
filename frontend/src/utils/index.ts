@@ -47,31 +47,31 @@ export const getSessionStatusLabel = (status: SessionStatus): string => {
 
 export const getSessionStatusColor = (status: SessionStatus): string => {
   const map: Record<SessionStatus, string> = {
-    [SessionStatus.ONGOING]: "text-cyan-400",
-    [SessionStatus.SUBMITTED]: "text-emerald-400",
-    [SessionStatus.EXPIRED]: "text-amber-400",
-    [SessionStatus.PROCTORING_FAILED]: "text-rose-400",
+    [SessionStatus.ONGOING]: "text-indigo-700",
+    [SessionStatus.SUBMITTED]: "text-green-700",
+    [SessionStatus.EXPIRED]: "text-amber-700",
+    [SessionStatus.PROCTORING_FAILED]: "text-red-700",
   };
-  return map[status] ?? "text-slate-400";
+  return map[status] ?? "text-gray-600";
 };
 
 export const getAlertSeverityColor = (severity: AlertSeverity): string => {
   const map: Record<AlertSeverity, string> = {
-    [AlertSeverity.LOW]: "text-cyan-300 bg-cyan/10 border border-cyan/20",
-    [AlertSeverity.MEDIUM]: "text-amber-300 bg-amber/10 border border-amber/20",
-    [AlertSeverity.HIGH]: "text-orange-300 bg-orange-500/10 border border-orange-500/20",
-    [AlertSeverity.CRITICAL]: "text-rose-300 bg-rose/10 border border-rose/20",
+    [AlertSeverity.LOW]: "text-gray-700 bg-gray-50 border border-gray-200",
+    [AlertSeverity.MEDIUM]: "text-amber-900 bg-amber-50 border border-amber-200",
+    [AlertSeverity.HIGH]: "text-orange-900 bg-orange-50 border border-orange-200",
+    [AlertSeverity.CRITICAL]: "text-red-800 bg-red-50 border border-red-200",
   };
-  return map[severity] ?? "text-slate-300 bg-white/5 border border-white/10";
+  return map[severity] ?? "text-gray-700 bg-gray-50 border border-gray-200";
 };
 
 export const getRecommendationColor = (action: string): string => {
   const map: Record<string, string> = {
-    approve: "text-emerald-300 bg-emerald/10 border border-emerald/20",
-    review: "text-amber-300 bg-amber/10 border border-amber/20",
-    reject: "text-rose-300 bg-rose/10 border border-rose/20",
+    approve: "text-green-800 bg-green-50 border border-green-200",
+    review: "text-amber-900 bg-amber-50 border border-amber-200",
+    reject: "text-red-800 bg-red-50 border border-red-200",
   };
-  return map[action] ?? "text-slate-300 bg-white/5 border border-white/10";
+  return map[action] ?? "text-gray-700 bg-gray-50 border border-gray-200";
 };
 
 // ============ Validation ============
@@ -126,7 +126,7 @@ export const getScoreGrade = (percentage: number): string => {
 };
 
 export const getScoreColor = (percentage: number): string => {
-  if (percentage >= 75) return "text-emerald-400";
-  if (percentage >= 50) return "text-amber-400";
-  return "text-rose-400";
+  if (percentage >= 75) return "text-green-700";
+  if (percentage >= 50) return "text-amber-700";
+  return "text-red-700";
 };
