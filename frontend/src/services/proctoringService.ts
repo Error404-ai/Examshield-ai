@@ -1,12 +1,14 @@
 /**
  * Proctoring Service
  * Students: send short proctoring events detected in the browser.
- * Admins: read per-exam session summaries and per-session alert timelines.
+ * Admins: read per-exam session summaries and per-session alert timelines,
+ * and resolve student appeals.
  */
 
 import api from "./api";
 import { AlertSeverity } from "../types";
-import type { IntegrityInfo, IntegrityStatus } from "./integrityService";
+
+type Appeal = Record<string, unknown>;
 
 export type ProctorEventType =
   | "tab_switch"
@@ -42,8 +44,7 @@ export interface SessionSummary {
   counts: Record<string, number>;
   suspicion_score: number;
   recommendation: Recommendation;
-  /** null while the student is still taking the exam */
-  integrity_status: IntegrityStatus | null;
+  appeal: Appeal | null;
 }
 
 export interface ProctorAlertRow {
@@ -62,9 +63,8 @@ export interface SessionAlertsDetail {
   counts: Record<string, number>;
   suspicion_score: number;
   recommendation: Recommendation;
-  integrity_status: IntegrityStatus | null;
-  integrity: IntegrityInfo;
   alerts: ProctorAlertRow[];
+  appeal: Appeal | null;
 }
 
 export const proctoringService = {
@@ -89,5 +89,13 @@ export const proctoringService = {
   async getSessionAlerts(sessionId: string): Promise<SessionAlertsDetail> {
     const { data } = await api.get(`/proctoring/sessions/${sessionId}/alerts`);
     return data;
+  },
+
+  async resolveAppeal(
+    sessionId: string,
+    decision: "accepted" | "rejected",
+    note: string
+  ): Promise<void> {
+    await api.put(`/proctoring/sessions/${sessionId}/appeal`, { decision, note });
   },
 };

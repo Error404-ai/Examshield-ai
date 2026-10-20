@@ -138,6 +138,24 @@ export interface GradedAnswer {
   marks_awarded: number;
 }
 
+export type AppealStatus = "pending" | "accepted" | "rejected";
+
+export interface Appeal {
+  message: string;
+  status: AppealStatus;
+  admin_note: string;
+  created_at: string | null;
+  resolved_at: string | null;
+}
+
+/** One proctoring event as the student sees it on their own result (no score) */
+export interface IntegrityEvent {
+  alert_type: string;
+  severity: AlertSeverity;
+  description: string;
+  timestamp: string;
+}
+
 export interface ExamResult {
   _id: string;
   student_id: string;
@@ -153,6 +171,8 @@ export interface ExamResult {
   started_at: string;
   submitted_at?: string;
   answers?: GradedAnswer[];
+  integrity_events?: IntegrityEvent[]; // result detail only
+  appeal?: Appeal | null;
 }
 
 // ============ Proctoring ============
@@ -201,6 +221,7 @@ export interface AdminStats {
   published_exams: number;
   total_students: number;
   total_sessions: number;
+  pending_appeals: number;
 }
 
 export interface StudentStats {

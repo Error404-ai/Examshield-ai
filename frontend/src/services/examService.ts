@@ -11,6 +11,7 @@ import {
   Question,
   QuestionCreate,
   SessionSubmit,
+  StudentAnswer,
   ExamResult,
   AdminStats,
   StudentStats,
@@ -53,6 +54,17 @@ export interface ExamAnalytics {
     correct_pct: number;
     skipped: number;
   }[];
+}
+
+export interface StartSessionResponse {
+  session_id: string;
+  duration_minutes: number;
+  started_at: string;
+  remaining_seconds: number;
+  /** Answers autosaved before a refresh or disconnect, keyed by question id */
+  draft_answers: Record<string, string>;
+  /** Tab switches already recorded for this session */
+  tab_switch_count: number;
 }
 
 // ============ Admin ============
@@ -148,22 +160,19 @@ export const studentService = {
     return { exam: data.exam, questions: data.questions };
   },
 
-  async startSession(examId: string): Promise<{
-    session_id: string;
-    duration_minutes: number;
-    started_at: string;
-    remaining_seconds: number;
-    draft_answers: { question_id: string; selected_answer: string }[];
-  }> {
-    const { data } = await api.post(`/student/exams/${examId}/start`);
+  /**
+   * Starts the session, or resumes the ongoing one. The backend requires consent.
+   * `consent` defaults to true only so the current ExamPage keeps working until
+   * the pre-exam notice (next step) passes it explicitly from its "Begin" button.
+   */
+  async startSession(examId: string, consent: boolean = true): Promise<StartSessionResponse> {
+    const { data } = await api.post(`/student/exams/${examId}/start`, { consent });
     return data;
   },
 
-  async saveDraft(
-    sessionId: string,
-    answers: { question_id: string; selected_answer: string }[]
-  ): Promise<void> {
-    await api.put(`/student/sessions/${sessionId}/draft`, { answers });
+  /** Autosave the current answers (replaces the previous draft) */
+  async saveDraft(sessionId: string, answers: StudentAnswer[]): Promise<void> {
+    await api.put(`/student/sessions/${sessionId}/answers`, { answers });
   },
 
   async submitExam(payload: SessionSubmit): Promise<{
@@ -187,5 +196,9 @@ export const studentService = {
   async getResultDetail(sessionId: string): Promise<ExamResult> {
     const { data } = await api.get(`/student/results/${sessionId}`);
     return data.result;
+  },
+
+  async fileAppeal(sessionId: string, message: string): Promise<void> {
+    await api.post(`/student/results/${sessionId}/appeal`, { message });
   },
 };
