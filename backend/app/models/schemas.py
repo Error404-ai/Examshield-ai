@@ -176,6 +176,21 @@ class SessionSubmit(BaseModel):
     answers: List[StudentAnswer]
 
 
+class StartIn(BaseModel):
+    """Start/resume an exam. The student must have accepted the proctoring notice."""
+    consent: bool = False
+
+
+class DraftSave(BaseModel):
+    """Autosaved answers for an ongoing session (replaces the previous draft)"""
+    answers: List[StudentAnswer]
+
+
+class AppealIn(BaseModel):
+    """A student's appeal against a finished attempt"""
+    message: str = Field(..., min_length=10, max_length=1000)
+
+
 class SessionResponse(BaseModel):
     """Session response schema"""
     id: str = Field(alias="_id")

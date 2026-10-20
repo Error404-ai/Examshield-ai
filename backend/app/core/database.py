@@ -64,26 +64,22 @@ async def close_db():
 
 
 async def create_indexes():
-    """
-    Create database indexes for optimization.
-    Field names match what the routes actually store (snake_case). The old
-    camelCase indexes (createdBy, examId, ...) pointed at fields that never
-    existed, so they never helped a query.
-    """
+    """Create database indexes. Field names match what the routes actually store (snake_case)."""
     try:
         # Users
         await db.users.create_index("email", unique=True)
 
-        # Exams: admin lists and the student "published" list
+        # Exams
         await db.exams.create_index("created_by")
         await db.exams.create_index([("is_published", 1), ("created_at", -1)])
 
         # Questions
         await db.questions.create_index("exam_id")
 
-        # Sessions: resume/lookup per student, and per-exam review + integrity queue
-        await db.sessions.create_index([("student_id", 1), ("exam_id", 1)])
+        # Sessions: resume/lookup per student+exam, review per exam, appeals badge
+        await db.sessions.create_index([("student_id", 1), ("exam_id", 1), ("status", 1)])
         await db.sessions.create_index([("exam_id", 1), ("status", 1)])
+        await db.sessions.create_index([("exam_id", 1), ("appeal.status", 1)])
 
         logger.info("Database indexes created")
     except Exception as e:

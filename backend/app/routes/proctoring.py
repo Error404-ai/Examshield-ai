@@ -2,7 +2,7 @@
 ExamShield AI - Proctoring Routes
 Browser-side AI (MediaPipe) detects violations and reports short events here.
 Events are stored on the session document (sessions.proctoring_alerts).
-Admins review them per exam / per session; integrity decisions live in routes/integrity.py.
+Admins review them per exam / per session and resolve student appeals.
 """
 
 import logging
@@ -15,15 +15,8 @@ from pymongo import ReturnDocument
 
 from app.core.database import get_db
 from app.core.security import get_current_user, require_role
-from app.core.utils import oid
+from app.core.utils import appeal_out, oid
 from app.models.schemas import AlertSeverity, SessionStatus
-from app.services.integrity_logic import (
-    derive_status,
-    iso,
-    public_integrity,
-    recommendation,
-    suspicion,
-)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -33,8 +26,6 @@ admin_only = require_role("admin")
 ONGOING = SessionStatus.ONGOING.value
 MAX_ALERTS_PER_SESSION = 500
 
-# "phone_detected" is emitted by the browser (useProctoring) but used to be missing
-# here, so every phone event was rejected with a 422 and never saved.
 EventType = Literal[
     "tab_switch",
     "fullscreen_exit",
@@ -46,6 +37,10 @@ EventType = Literal[
     "phone_detected",
 ]
 
+# Weights used for the suspicion score shown to admins
+SEVERITY_WEIGHT = {"low": 1, "medium": 3, "high": 8, "critical": 15}
+
+
 class ProctoringEventIn(BaseModel):
     session_id: str
     alert_type: EventType
@@ -53,10 +48,28 @@ class ProctoringEventIn(BaseModel):
     description: str = Field("", max_length=300)
 
 
+class AppealDecision(BaseModel):
+    decision: Literal["accepted", "rejected"]
+    note: str = Field("", max_length=1000)
+
+
 # ─── Helpers ─────────────────────────────────────────────────────────────────
-def _integrity_status(session: dict):
-    """Integrity decisions are only available after the student submits."""
-    return None if session.get("status") == ONGOING else derive_status(session)
+
+def _iso(value):
+    """Naive-UTC datetime -> ISO string with Z (None if missing)"""
+    return value.isoformat() + "Z" if isinstance(value, datetime) else None
+
+
+def _suspicion(alerts: list) -> int:
+    return min(100, sum(SEVERITY_WEIGHT.get(a.get("severity"), 0) for a in alerts))
+
+
+def _recommendation(score: int) -> str:
+    if score < 20:
+        return "approve"
+    if score < 50:
+        return "review"
+    return "reject"
 
 
 # ─── Student: report an event ────────────────────────────────────────────────
@@ -118,7 +131,7 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
     rows = []
     for s in sessions:
         alerts = s.get("proctoring_alerts", [])
-        score = suspicion(alerts)
+        score = _suspicion(alerts)
         student = users.get(s["student_id"], {})
         rows.append({
             "session_id": str(s["_id"]),
@@ -130,13 +143,13 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
             "total_marks": s.get("total_marks"),
             "percentage": s.get("percentage"),
             "passed": s.get("passed"),
-            "started_at": iso(s.get("started_at")),
-            "submitted_at": iso(s.get("submitted_at")),
+            "started_at": _iso(s.get("started_at")),
+            "submitted_at": _iso(s.get("submitted_at")),
             "total_alerts": len(alerts),
             "counts": s.get("proctoring_counts", {}),
             "suspicion_score": score,
-            "recommendation": recommendation(score),
-            "integrity_status": _integrity_status(s),
+            "recommendation": _recommendation(score),
+            "appeal": appeal_out(s.get("appeal")),
         })
 
     # Most suspicious first
@@ -147,28 +160,22 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
 
 # ─── Admin: alert timeline of one session ────────────────────────────────────
 
-async def _owned_session(db, session_id: str, admin_id: str, projection=None):
-    """Session of one of this admin's exams, or 404 (same answer for both cases)"""
-    session = await db.sessions.find_one({"_id": oid(session_id)}, projection)
+@router.get("/sessions/{session_id}/alerts")
+async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(get_db)):
+    session = await db.sessions.find_one({"_id": oid(session_id)}, {"answers": 0, "draft_answers": 0})
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Admins can only see sessions of their own exams
     exam = await db.exams.find_one(
-        {"_id": oid(session["exam_id"]), "created_by": admin_id}, {"title": 1}
+        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}, {"title": 1}
     )
     if not exam:
         raise HTTPException(status_code=404, detail="Session not found")
-    return session, exam
-
-
-@router.get("/sessions/{session_id}/alerts")
-async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(get_db)):
-    session, exam = await _owned_session(
-        db, session_id, admin["user_id"], {"answers": 0, "draft_answers": 0}
-    )
 
     student = await db.users.find_one({"_id": oid(session["student_id"])}, {"name": 1, "email": 1})
     alerts = session.get("proctoring_alerts", [])
-    score = suspicion(alerts)
+    score = _suspicion(alerts)
 
     return {
         "success": True,
@@ -179,8 +186,34 @@ async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(
         "total_alerts": len(alerts),
         "counts": session.get("proctoring_counts", {}),
         "suspicion_score": score,
-        "recommendation": recommendation(score),
-        "integrity_status": _integrity_status(session),
-        "integrity": public_integrity(session.get("integrity") or {}, admin=True),
+        "recommendation": _recommendation(score),
         "alerts": alerts,
+        "appeal": appeal_out(session.get("appeal")),
     }
+
+
+# ─── Admin: resolve a student's appeal ───────────────────────────────────────
+
+@router.put("/sessions/{session_id}/appeal")
+async def resolve_appeal(
+    session_id: str, body: AppealDecision, admin=Depends(admin_only), db=Depends(get_db)
+):
+    session = await db.sessions.find_one({"_id": oid(session_id)}, {"exam_id": 1})
+    owns = session and await db.exams.find_one(
+        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}, {"_id": 1}
+    )
+    if not owns:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    result = await db.sessions.update_one(
+        {"_id": session["_id"], "appeal.status": "pending"},
+        {"$set": {
+            "appeal.status": body.decision,
+            "appeal.admin_note": body.note.strip(),
+            "appeal.resolved_at": datetime.utcnow(),
+            "appeal.resolved_by": admin["user_id"],
+        }},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=409, detail="No pending appeal on this session")
+    return {"success": True}

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.core.security import require_role
-from app.core.utils import oid, clean
+from app.core.utils import appeal_out, oid, clean
 from app.models.schemas import ExamUpdate, QuestionCreate, SessionStatus
 from app.services.ai_service import AIGenerationError, AIUnavailable, generate_questions
 
@@ -88,6 +88,9 @@ async def dashboard(admin=Depends(admin_only), db=Depends(get_db)):
             "total_students": await db.users.count_documents({"role": "student"}),
             "total_sessions": await db.sessions.count_documents(
                 {"exam_id": {"$in": exam_ids}}
+            ),
+            "pending_appeals": await db.sessions.count_documents(
+                {"exam_id": {"$in": exam_ids}, "appeal.status": "pending"}
             ),
         },
     }
@@ -243,6 +246,8 @@ async def exam_results(exam_id: str, admin=Depends(admin_only), db=Depends(get_d
     for s in sessions:
         row = clean(s)
         row.pop("answers", None)
+        row.pop("draft_answers", None)
+        row["appeal"] = appeal_out(s.get("appeal"))
         row["student_name"] = students[s["student_id"]].get("name", "Unknown")
         row["student_email"] = students[s["student_id"]].get("email", "")
         results.append(row)

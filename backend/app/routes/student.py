@@ -1,27 +1,32 @@
 """
 ExamShield AI - Student Routes
-Matches frontend studentService (services/examService.ts) and sessionService.
+Matches frontend studentService (services/examService.ts).
 Grading is done server-side; correct answers never leave the server
 until the session is submitted.
 
-Changes in this version:
-- Answers are autosaved to the session (PUT /sessions/{id}/draft) and returned
-  when a session is resumed, so a refresh or dropped connection loses nothing.
-- Submit falls back to the saved draft for questions missing from the payload.
+Recovery: answers are autosaved to the session (draft_answers), so a refresh
+or a dropped connection does not lose work. The draft is deleted on submit.
+
+Privacy: students see the proctoring events recorded for their own attempt
+(so they can appeal), but never the suspicion score or recommendation.
 """
 
 import logging
 from datetime import datetime, timedelta
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 from pymongo import ReturnDocument
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.core.utils import oid, clean
-from app.models.schemas import SessionStatus, SessionSubmit, StudentAnswer
+from app.core.utils import appeal_out, clean, oid
+from app.models.schemas import (
+    AppealIn,
+    DraftSave,
+    SessionStatus,
+    SessionSubmit,
+    StartIn,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -29,16 +34,28 @@ router = APIRouter()
 ONGOING = SessionStatus.ONGOING.value
 DONE = [SessionStatus.SUBMITTED.value, SessionStatus.EXPIRED.value]
 LATE_GRACE_SECONDS = 60
+
 MAX_DRAFT_ANSWERS = 500
-MAX_ANSWER_CHARS = 10000
+MAX_ANSWER_CHARS = 5000
+
+# Fields that never go to the student
+_PRIVATE_FIELDS = (
+    "draft_answers",
+    "draft_saved_at",
+    "expires_at",
+    "consented_at",
+    "proctoring_counts",
+)
 
 
-class DraftIn(BaseModel):
-    answers: List[StudentAnswer]
-
-
-def _iso_now() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+def _student_view(session: dict) -> dict:
+    """A session as the student may see it: no counts, no timers, events renamed"""
+    row = clean(session)
+    for key in _PRIVATE_FIELDS:
+        row.pop(key, None)
+    row["integrity_events"] = row.pop("proctoring_alerts", [])
+    row["appeal"] = appeal_out(session.get("appeal"))
+    return row
 
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -102,7 +119,15 @@ async def get_exam_details(exam_id: str, user=Depends(get_current_user), db=Depe
 # ─── Session lifecycle ───────────────────────────────────────────────────────
 
 @router.post("/exams/{exam_id}/start")
-async def start_exam(exam_id: str, user=Depends(get_current_user), db=Depends(get_db)):
+async def start_exam(
+    exam_id: str, body: StartIn, user=Depends(get_current_user), db=Depends(get_db)
+):
+    """Start a session, or resume the ongoing one (same session, saved draft, tab count)."""
+    if not body.consent:
+        raise HTTPException(
+            status_code=400, detail="You must accept the proctoring notice to start the exam"
+        )
+
     sid = user["user_id"]
     exam = await db.exams.find_one({"_id": oid(exam_id), "is_published": True})
     if not exam:
@@ -119,7 +144,9 @@ async def start_exam(exam_id: str, user=Depends(get_current_user), db=Depends(ge
         {"$setOnInsert": {
             "started_at": now,
             "expires_at": now + timedelta(minutes=exam["duration"]),
+            "consented_at": now,
             "proctoring_alerts": [],
+            "draft_answers": {},
         }},
         upsert=True,
         return_document=ReturnDocument.AFTER,
@@ -131,57 +158,38 @@ async def start_exam(exam_id: str, user=Depends(get_current_user), db=Depends(ge
         "session_id": str(session["_id"]),
         "duration_minutes": exam["duration"],
         "started_at": session["started_at"].isoformat() + "Z",
-        "remaining_seconds": remaining,  # server clock is the authority for the timer
-        "draft_answers": session.get("draft_answers", []),
+        "remaining_seconds": remaining,
+        "draft_answers": session.get("draft_answers") or {},
+        "tab_switch_count": (session.get("proctoring_counts") or {}).get("tab_switch", 0),
     }
 
 
-@router.put("/sessions/{session_id}/draft")
+@router.put("/sessions/{session_id}/answers")
 async def save_draft(
-    session_id: str, body: DraftIn, user=Depends(get_current_user), db=Depends(get_db)
+    session_id: str, body: DraftSave, user=Depends(get_current_user), db=Depends(get_db)
 ):
-    """Autosave in-progress answers. Replaces the previous draft; never graded."""
-    if len(body.answers) > MAX_DRAFT_ANSWERS or any(
-        len(a.selected_answer) > MAX_ANSWER_CHARS for a in body.answers
-    ):
-        raise HTTPException(status_code=400, detail="Draft is too large")
+    """Autosave the student's current answers. Replaces the previous draft."""
+    if len(body.answers) > MAX_DRAFT_ANSWERS:
+        raise HTTPException(status_code=400, detail="Too many answers")
 
-    question_ids = [a.question_id for a in body.answers]
-    if len(set(question_ids)) != len(question_ids):
-        raise HTTPException(status_code=400, detail="Draft contains duplicate questions")
-
-    session = await db.sessions.find_one(
-        {"_id": oid(session_id), "student_id": user["user_id"], "status": ONGOING},
-        {"exam_id": 1},
-    )
-    if not session:
-        raise HTTPException(status_code=404, detail="Active session not found")
-    valid_ids = {
-        str(q["_id"])
-        async for q in db.questions.find({"exam_id": session["exam_id"]}, {"_id": 1})
-    }
-    if any(question_id not in valid_ids for question_id in question_ids):
-        raise HTTPException(status_code=400, detail="Draft contains a question outside this exam")
-
-    saved_at = _iso_now()
+    drafts = {a.question_id: a.selected_answer[:MAX_ANSWER_CHARS] for a in body.answers}
+    now = datetime.utcnow()
     result = await db.sessions.update_one(
-        {"_id": oid(session_id), "student_id": user["user_id"], "status": ONGOING},
-        {"$set": {
-            "draft_answers": [a.model_dump() for a in body.answers],
-            "draft_saved_at": saved_at,
-        }},
+        {
+            "_id": oid(session_id),
+            "student_id": user["user_id"],
+            "status": ONGOING,
+            "expires_at": {"$gt": now - timedelta(seconds=LATE_GRACE_SECONDS)},
+        },
+        {"$set": {"draft_answers": drafts, "draft_saved_at": now}},
     )
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Active session not found")
-    return {"success": True, "saved_at": saved_at}
+        raise HTTPException(status_code=409, detail="This session is no longer active")
+    return {"success": True}
 
 
 @router.post("/sessions/submit")
 async def submit_session(payload: SessionSubmit, user=Depends(get_current_user), db=Depends(get_db)):
-    if len(payload.answers) > MAX_DRAFT_ANSWERS or any(
-        len(a.selected_answer) > MAX_ANSWER_CHARS for a in payload.answers
-    ):
-        raise HTTPException(status_code=400, detail="Submission is too large")
     sid = user["user_id"]
     session = await db.sessions.find_one({"_id": oid(payload.session_id), "student_id": sid})
     if not session:
@@ -194,9 +202,11 @@ async def submit_session(payload: SessionSubmit, user=Depends(get_current_user),
         raise HTTPException(status_code=404, detail="Exam no longer exists")
 
     questions = [q async for q in db.questions.find({"exam_id": session["exam_id"]}).sort("created_at", 1)]
-    # Saved draft is the fallback; whatever the client sends now wins
-    given = {d["question_id"]: d["selected_answer"] for d in session.get("draft_answers", [])}
-    given.update({a.question_id: a.selected_answer for a in payload.answers})
+    # The saved draft fills any gap; answers sent with the submit win
+    given = {
+        **(session.get("draft_answers") or {}),
+        **{a.question_id: a.selected_answer for a in payload.answers},
+    }
 
     score, total, graded = 0, 0, []
     for q in questions:
@@ -231,7 +241,7 @@ async def submit_session(payload: SessionSubmit, user=Depends(get_current_user),
         "submitted_at": now,
     }
     # Only flips an ongoing session, so a double-click can't grade twice.
-    # The draft is dropped once graded answers exist.
+    # The draft has served its purpose, so it is removed.
     updated = await db.sessions.update_one(
         {"_id": session["_id"], "status": ONGOING},
         {"$set": result, "$unset": {"draft_answers": "", "draft_saved_at": ""}},
@@ -261,8 +271,9 @@ async def my_results(user=Depends(get_current_user), db=Depends(get_db)):
 
     results = []
     for s in sessions:
-        row = clean(s)
+        row = _student_view(s)
         row.pop("answers", None)
+        row.pop("integrity_events", None)  # list view stays light
         exam = await db.exams.find_one({"_id": oid(s["exam_id"])}, {"title": 1})
         row["exam_title"] = exam["title"] if exam else "Deleted exam"
         results.append(row)
@@ -277,6 +288,31 @@ async def result_detail(session_id: str, user=Depends(get_current_user), db=Depe
     if not s:
         raise HTTPException(status_code=404, detail="Result not found")
     exam = await db.exams.find_one({"_id": oid(s["exam_id"])}, {"title": 1})
-    result = clean(s)
+    result = _student_view(s)
     result["exam_title"] = exam["title"] if exam else "Deleted exam"
     return {"success": True, "result": result}
+
+
+@router.post("/results/{session_id}/appeal")
+async def file_appeal(
+    session_id: str, body: AppealIn, user=Depends(get_current_user), db=Depends(get_db)
+):
+    """One appeal per finished attempt, only by the student who took it."""
+    result = await db.sessions.update_one(
+        {
+            "_id": oid(session_id),
+            "student_id": user["user_id"],
+            "status": {"$in": DONE},
+            "appeal": {"$exists": False},
+        },
+        {"$set": {"appeal": {
+            "message": body.message.strip(),
+            "status": "pending",
+            "created_at": datetime.utcnow(),
+            "admin_note": "",
+            "resolved_at": None,
+        }}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Result not found, or it was already appealed")
+    return {"success": True}
