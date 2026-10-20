@@ -37,25 +37,49 @@ interface RunnerProps {
   questions: Question[];
   sessionId: string;
   remainingSeconds: number;
+  draftAnswers: StudentAnswer[];
 }
 
-const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remainingSeconds }) => {
+const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remainingSeconds, draftAnswers }) => {
   const navigate = useNavigate();
   const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>(() =>
+    Object.fromEntries(draftAnswers.map((answer) => [answer.question_id, answer.selected_answer]))
+  );
   const [started, setStarted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [saveError, setSaveError] = useState("");
 
   const answersRef = useRef(answers);
   answersRef.current = answers;
   const submittedRef = useRef(false);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  // Persist complete answer snapshots in order so slow requests cannot overwrite
+  // a newer draft with an older one.
+  useEffect(() => {
+    if (!started) return;
+    const snapshot = Object.entries(answers).map(([question_id, selected_answer]) => ({
+      question_id,
+      selected_answer,
+    }));
+    const timeout = window.setTimeout(() => {
+      saveChainRef.current = saveChainRef.current
+        .catch(() => undefined)
+        .then(() => studentService.saveDraft(sessionId, snapshot))
+        .then(() => setSaveError(""))
+        .catch((err) => setSaveError(getErrorMessage(err)));
+    }, 700);
+    return () => window.clearTimeout(timeout);
+  }, [answers, started, sessionId]);
 
   const submit = useCallback(async () => {
     if (submittedRef.current) return;
     submittedRef.current = true;
     setSubmitting(true);
     try {
+      await saveChainRef.current.catch(() => undefined);
       await studentService.submitExam({
         session_id: sessionId,
         answers: Object.entries(answersRef.current).map(([question_id, selected_answer]) => ({
@@ -156,6 +180,11 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
             {error && (
               <div role="alert" className="mb-6 border-l-2 border-red-500 bg-red-50/70 px-4 py-3 text-sm text-red-800">
                 {error}
+              </div>
+            )}
+            {saveError && (
+              <div role="status" className="mb-6 border-l-2 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Your latest answer changes could not be saved yet. Check your connection; the app will retry as you continue.
               </div>
             )}
 
@@ -338,6 +367,7 @@ export const ExamPage: React.FC = () => {
     questions: Question[];
     sessionId: string;
     remaining: number;
+    draftAnswers: StudentAnswer[];
   } | null>(null);
   const [error, setError] = useState("");
   const startedRef = useRef(false); // guards React StrictMode's double effect
@@ -351,15 +381,12 @@ export const ExamPage: React.FC = () => {
         const { exam, questions } = await studentService.getExam(examId);
         const session = await studentService.startSession(examId);
 
-        const startedAt = new Date(session.started_at).getTime();
-        const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-        const remaining = Math.max(0, session.duration_minutes * 60 - elapsedSeconds);
-
         setData({
           exam,
           questions,
           sessionId: session.session_id,
-          remaining,
+          remaining: session.remaining_seconds,
+          draftAnswers: session.draft_answers ?? [],
         });
       } catch (err) {
         setError(getErrorMessage(err));
@@ -395,6 +422,7 @@ export const ExamPage: React.FC = () => {
       questions={data.questions}
       sessionId={data.sessionId}
       remainingSeconds={data.remaining}
+      draftAnswers={data.draftAnswers}
     />
   );
 };

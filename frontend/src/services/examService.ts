@@ -153,9 +153,17 @@ export const studentService = {
     duration_minutes: number;
     started_at: string;
     remaining_seconds: number;
+    draft_answers: { question_id: string; selected_answer: string }[];
   }> {
     const { data } = await api.post(`/student/exams/${examId}/start`);
     return data;
+  },
+
+  async saveDraft(
+    sessionId: string,
+    answers: { question_id: string; selected_answer: string }[]
+  ): Promise<void> {
+    await api.put(`/student/sessions/${sessionId}/draft`, { answers });
   },
 
   async submitExam(payload: SessionSubmit): Promise<{

@@ -1,20 +1,27 @@
 """
 ExamShield AI - Student Routes
-Matches frontend studentService (services/examService.ts).
+Matches frontend studentService (services/examService.ts) and sessionService.
 Grading is done server-side; correct answers never leave the server
 until the session is submitted.
+
+Changes in this version:
+- Answers are autosaved to the session (PUT /sessions/{id}/draft) and returned
+  when a session is resumed, so a refresh or dropped connection loses nothing.
+- Submit falls back to the saved draft for questions missing from the payload.
 """
 
 import logging
 from datetime import datetime, timedelta
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from pymongo import ReturnDocument
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.utils import oid, clean
-from app.models.schemas import SessionStatus, SessionSubmit
+from app.models.schemas import SessionStatus, SessionSubmit, StudentAnswer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -22,6 +29,16 @@ router = APIRouter()
 ONGOING = SessionStatus.ONGOING.value
 DONE = [SessionStatus.SUBMITTED.value, SessionStatus.EXPIRED.value]
 LATE_GRACE_SECONDS = 60
+MAX_DRAFT_ANSWERS = 500
+MAX_ANSWER_CHARS = 10000
+
+
+class DraftIn(BaseModel):
+    answers: List[StudentAnswer]
+
+
+def _iso_now() -> str:
+    return datetime.utcnow().isoformat() + "Z"
 
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -114,12 +131,57 @@ async def start_exam(exam_id: str, user=Depends(get_current_user), db=Depends(ge
         "session_id": str(session["_id"]),
         "duration_minutes": exam["duration"],
         "started_at": session["started_at"].isoformat() + "Z",
-        "remaining_seconds": remaining,
+        "remaining_seconds": remaining,  # server clock is the authority for the timer
+        "draft_answers": session.get("draft_answers", []),
     }
+
+
+@router.put("/sessions/{session_id}/draft")
+async def save_draft(
+    session_id: str, body: DraftIn, user=Depends(get_current_user), db=Depends(get_db)
+):
+    """Autosave in-progress answers. Replaces the previous draft; never graded."""
+    if len(body.answers) > MAX_DRAFT_ANSWERS or any(
+        len(a.selected_answer) > MAX_ANSWER_CHARS for a in body.answers
+    ):
+        raise HTTPException(status_code=400, detail="Draft is too large")
+
+    question_ids = [a.question_id for a in body.answers]
+    if len(set(question_ids)) != len(question_ids):
+        raise HTTPException(status_code=400, detail="Draft contains duplicate questions")
+
+    session = await db.sessions.find_one(
+        {"_id": oid(session_id), "student_id": user["user_id"], "status": ONGOING},
+        {"exam_id": 1},
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Active session not found")
+    valid_ids = {
+        str(q["_id"])
+        async for q in db.questions.find({"exam_id": session["exam_id"]}, {"_id": 1})
+    }
+    if any(question_id not in valid_ids for question_id in question_ids):
+        raise HTTPException(status_code=400, detail="Draft contains a question outside this exam")
+
+    saved_at = _iso_now()
+    result = await db.sessions.update_one(
+        {"_id": oid(session_id), "student_id": user["user_id"], "status": ONGOING},
+        {"$set": {
+            "draft_answers": [a.model_dump() for a in body.answers],
+            "draft_saved_at": saved_at,
+        }},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Active session not found")
+    return {"success": True, "saved_at": saved_at}
 
 
 @router.post("/sessions/submit")
 async def submit_session(payload: SessionSubmit, user=Depends(get_current_user), db=Depends(get_db)):
+    if len(payload.answers) > MAX_DRAFT_ANSWERS or any(
+        len(a.selected_answer) > MAX_ANSWER_CHARS for a in payload.answers
+    ):
+        raise HTTPException(status_code=400, detail="Submission is too large")
     sid = user["user_id"]
     session = await db.sessions.find_one({"_id": oid(payload.session_id), "student_id": sid})
     if not session:
@@ -132,7 +194,9 @@ async def submit_session(payload: SessionSubmit, user=Depends(get_current_user),
         raise HTTPException(status_code=404, detail="Exam no longer exists")
 
     questions = [q async for q in db.questions.find({"exam_id": session["exam_id"]}).sort("created_at", 1)]
-    given = {a.question_id: a.selected_answer for a in payload.answers}
+    # Saved draft is the fallback; whatever the client sends now wins
+    given = {d["question_id"]: d["selected_answer"] for d in session.get("draft_answers", [])}
+    given.update({a.question_id: a.selected_answer for a in payload.answers})
 
     score, total, graded = 0, 0, []
     for q in questions:
@@ -166,9 +230,11 @@ async def submit_session(payload: SessionSubmit, user=Depends(get_current_user),
         "answers": graded,
         "submitted_at": now,
     }
-    # Only flips an ongoing session, so a double-click can't grade twice
+    # Only flips an ongoing session, so a double-click can't grade twice.
+    # The draft is dropped once graded answers exist.
     updated = await db.sessions.update_one(
-        {"_id": session["_id"], "status": ONGOING}, {"$set": result}
+        {"_id": session["_id"], "status": ONGOING},
+        {"$set": result, "$unset": {"draft_answers": "", "draft_saved_at": ""}},
     )
     if updated.matched_count == 0:
         raise HTTPException(status_code=400, detail="This exam was already submitted")

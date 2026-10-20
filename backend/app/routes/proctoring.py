@@ -2,7 +2,7 @@
 ExamShield AI - Proctoring Routes
 Browser-side AI (MediaPipe) detects violations and reports short events here.
 Events are stored on the session document (sessions.proctoring_alerts).
-Admins review them per exam / per session; decisions live in routes/integrity.py.
+Admins review them per exam / per session; integrity decisions live in routes/integrity.py.
 """
 
 import logging
@@ -33,7 +33,8 @@ admin_only = require_role("admin")
 ONGOING = SessionStatus.ONGOING.value
 MAX_ALERTS_PER_SESSION = 500
 
-# phone_detected was sent by the browser but missing here, so those events got a 422
+# "phone_detected" is emitted by the browser (useProctoring) but used to be missing
+# here, so every phone event was rejected with a 422 and never saved.
 EventType = Literal[
     "tab_switch",
     "fullscreen_exit",
@@ -45,7 +46,6 @@ EventType = Literal[
     "phone_detected",
 ]
 
-
 class ProctoringEventIn(BaseModel):
     session_id: str
     alert_type: EventType
@@ -53,8 +53,9 @@ class ProctoringEventIn(BaseModel):
     description: str = Field("", max_length=300)
 
 
+# ─── Helpers ─────────────────────────────────────────────────────────────────
 def _integrity_status(session: dict):
-    """Decisions only make sense once the student has submitted"""
+    """Integrity decisions are only available after the student submits."""
     return None if session.get("status") == ONGOING else derive_status(session)
 
 
@@ -102,7 +103,9 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    sessions = await db.sessions.find({"exam_id": exam_id}, {"answers": 0}).to_list(None)
+    sessions = await db.sessions.find(
+        {"exam_id": exam_id}, {"answers": 0, "draft_answers": 0}
+    ).to_list(None)
 
     users = {}
     student_ids = list({s["student_id"] for s in sessions})
@@ -144,18 +147,24 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
 
 # ─── Admin: alert timeline of one session ────────────────────────────────────
 
-@router.get("/sessions/{session_id}/alerts")
-async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(get_db)):
-    session = await db.sessions.find_one({"_id": oid(session_id)}, {"answers": 0})
+async def _owned_session(db, session_id: str, admin_id: str, projection=None):
+    """Session of one of this admin's exams, or 404 (same answer for both cases)"""
+    session = await db.sessions.find_one({"_id": oid(session_id)}, projection)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-
-    # Admins can only see sessions of their own exams
     exam = await db.exams.find_one(
-        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}, {"title": 1}
+        {"_id": oid(session["exam_id"]), "created_by": admin_id}, {"title": 1}
     )
     if not exam:
         raise HTTPException(status_code=404, detail="Session not found")
+    return session, exam
+
+
+@router.get("/sessions/{session_id}/alerts")
+async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(get_db)):
+    session, exam = await _owned_session(
+        db, session_id, admin["user_id"], {"answers": 0, "draft_answers": 0}
+    )
 
     student = await db.users.find_one({"_id": oid(session["student_id"])}, {"name": 1, "email": 1})
     alerts = session.get("proctoring_alerts", [])
