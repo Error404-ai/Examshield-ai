@@ -135,7 +135,7 @@ export const StudentDashboard: React.FC = () => {
           </div>
 
           {visible.length === 0 ? (
-            <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 px-6 text-center">
+            <div className="flex min-h-[260px] flex-col items-center justify-center border-y border-gray-200 px-6 text-center">
               <p className="text-gray-700">
                 {exams.length === 0 ? "No exams are available right now." : "No exams match this filter."}
               </p>
@@ -144,7 +144,7 @@ export const StudentDashboard: React.FC = () => {
               </p>
             </div>
           ) : (
-            <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
+            <ul className="divide-y divide-gray-200 border-y border-gray-200">
               {visible.map((exam, i) => (
                 <ExamCard
                   key={exam._id}
@@ -170,11 +170,11 @@ export const StudentDashboard: React.FC = () => {
               )}
             </div>
             {results.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500">
+              <p className="border-y border-gray-200 px-4 py-8 text-center text-sm text-gray-500">
                 Your results will show up here after your first exam.
               </p>
             ) : (
-              <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
+              <ul className="divide-y divide-gray-200 border-y border-gray-200">
                 {results.slice(0, 5).map((r) => (
                   <li key={r._id}>
                     <Link
@@ -196,7 +196,7 @@ export const StudentDashboard: React.FC = () => {
             )}
           </section>
 
-          <section className="rounded-lg border border-amber-200 bg-amber-50 p-5">
+          <section className="border-l-2 border-amber-400 py-1 pl-5">
             <h2 className="font-display text-base font-semibold text-gray-900">Exams are proctored</h2>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-relaxed text-gray-700">
               <li>Allow your camera when asked.</li>

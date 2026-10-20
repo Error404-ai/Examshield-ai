@@ -47,11 +47,11 @@ export const StudentResultsPage: React.FC = () => {
       )}
 
       {results.length === 0 ? (
-        <div className="flex min-h-[300px] items-center justify-center rounded-lg border border-dashed border-gray-300 px-6 text-center text-gray-600">
+        <div className="flex min-h-[300px] items-center justify-center border-y border-gray-200 px-6 text-center text-gray-600">
           You haven&rsquo;t completed any exams yet.
         </div>
       ) : (
-        <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <ul className="divide-y divide-gray-200 border-y border-gray-200">
           {results.map((r) => (
             <li key={r._id}>
               <Link

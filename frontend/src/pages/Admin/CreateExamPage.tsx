@@ -6,6 +6,8 @@
  */
 
 import { PageHeader } from "../../components/common/PageHeader";
+import { Reveal } from "../../components/common/Motion";
+import { Button } from "../../components/common/Button";
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { adminService, Difficulty } from "../../services/examService";
@@ -29,10 +31,17 @@ const emptyQuestion = (): DraftQuestion => ({
   marks: 1,
 });
 
+// Open, underline-style fields: no boxes around inputs
 const inputClass =
-  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-600/20";
+  "w-full border-0 border-b border-gray-300 bg-transparent px-0 py-2.5 text-base text-gray-900 placeholder-gray-400 transition-colors focus:border-indigo-600 focus:outline-none focus:ring-0";
 
-const labelClass = "mb-1 block text-sm font-medium text-gray-800";
+const labelClass = "mb-1 block text-xs font-medium uppercase tracking-wider text-gray-500";
+
+// Fields inside the dark AI panel
+const darkInput =
+  "w-full rounded-md border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-slate-500 transition-colors focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400";
+
+const darkLabel = "mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400";
 
 const isBlank = (q: DraftQuestion) => !q.text.trim() && q.options.every((o) => !o.trim());
 
@@ -246,10 +255,12 @@ export const CreateExamPage: React.FC = () => {
     );
   }
 
+  const totalMarks = questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
+
   return (
-    <div className="mx-auto max-w-7xl px-6 py-10">
+    <div className="mx-auto max-w-7xl px-6 pb-0 pt-10">
       <PageHeader
-        className="mb-8"
+        className="mb-12"
         eyebrow={isEdit ? "Edit exam" : "New exam"}
         title={isEdit ? "Edit exam" : "Create an exam"}
         subtitle={
@@ -260,266 +271,297 @@ export const CreateExamPage: React.FC = () => {
       />
 
       {error && (
-        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
+        <div className="mb-8 border-l-2 border-red-500 bg-red-50/70 px-4 py-3">
           <p className="text-sm text-red-800">{error}</p>
         </div>
       )}
 
-      <div className="mb-6 grid items-stretch gap-6 lg:grid-cols-2">
-      {/* Details */}
-      <div className="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-6">
-        <div>
-          <label className={labelClass}>Title</label>
-          <input
-            className={inputClass}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Data Structures Midterm"
-          />
-        </div>
-        <div className="flex flex-1 flex-col">
-          <label className={labelClass}>Description</label>
-          <textarea
-            className={`${inputClass} min-h-[96px] flex-1 resize-none`}
-            rows={2}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>Duration (minutes)</label>
-            <input
-              type="number"
-              min={1}
-              className={inputClass}
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Passing percentage</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              className={inputClass}
-              value={passingPct}
-              onChange={(e) => setPassingPct(Number(e.target.value))}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* AI generator */}
-      <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-6">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div>
-            <h2 className="font-display text-lg font-semibold text-gray-900">Generate with AI</h2>
-            <p className="text-sm text-gray-500">
-              Draft multiple-choice questions, then review and edit them below.
-            </p>
-          </div>
-          <span className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800">
-            AI
-          </span>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className={labelClass}>Topic</label>
-            <input
-              className={inputClass}
-              value={aiTopic}
-              onChange={(e) => setAiTopic(e.target.value)}
-              placeholder="e.g. Binary trees and traversal"
-              maxLength={200}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <Reveal delay={0.15} className="grid items-start gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-16">
+        {/* 01 Details: open form, no card */}
+        <section>
+          <h2 className="mb-8 flex items-baseline gap-3 border-t border-gray-300 pt-4 font-display text-xl font-medium text-gray-900">
+            <span className="text-sm tabular-nums text-indigo-700">01</span>
+            Details
+          </h2>
+          <div className="flex flex-col gap-7">
             <div>
-              <label className={labelClass}>Number of questions (1-15)</label>
+              <label className={labelClass}>Title</label>
               <input
-                type="number"
-                min={1}
-                max={15}
-                className={inputClass}
-                value={aiCount}
-                onChange={(e) => setAiCount(Number(e.target.value))}
+                className={`${inputClass} font-display text-xl`}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Data Structures Midterm"
               />
             </div>
             <div>
-              <label className={labelClass}>Difficulty</label>
-              <div className="flex gap-1 rounded-lg border border-gray-300 bg-white p-1">
-                {DIFFICULTIES.map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => setAiDifficulty(d.id)}
-                    className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                      aiDifficulty === d.id
-                        ? "bg-indigo-600 text-white"
-                        : "text-gray-600 hover:text-gray-900"
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
+              <label className={labelClass}>Description</label>
+              <textarea
+                className={`${inputClass} resize-none`}
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="A line or two students will see before they start"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-8">
+              <div>
+                <label className={labelClass}>Duration (minutes)</label>
+                <input
+                  type="number"
+                  min={1}
+                  className={`${inputClass} font-display text-2xl tabular-nums`}
+                  value={duration}
+                  onChange={(e) => setDuration(Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Passing percentage</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  className={`${inputClass} font-display text-2xl tabular-nums`}
+                  value={passingPct}
+                  onChange={(e) => setPassingPct(Number(e.target.value))}
+                />
               </div>
             </div>
           </div>
+        </section>
 
-          <div>
-            <label className={labelClass}>
-              Study material <span className="font-normal text-gray-500">(optional)</span>
-            </label>
-            <textarea
-              className={inputClass}
-              rows={3}
-              maxLength={6000}
-              value={aiContext}
-              onChange={(e) => setAiContext(e.target.value)}
-              placeholder="Paste notes or a passage. Questions will be based only on this text."
-            />
-            <p className="mt-1 text-right text-xs text-gray-500">{aiContext.length} / 6000</p>
+        {/* 02 AI generator: the one dark moment, echoing the landing page */}
+        <section className="relative overflow-hidden rounded-xl bg-navy-900 p-8 text-slate-200">
+          <div aria-hidden className="pointer-events-none absolute inset-0">
+            <div className="absolute inset-0 bg-[radial-gradient(34rem_18rem_at_100%_0%,rgba(34,211,238,0.16),transparent_70%)]" />
+            <div className="bg-grid-dark absolute inset-0 [-webkit-mask-image:linear-gradient(to_bottom,black,transparent_70%)] [mask-image:linear-gradient(to_bottom,black,transparent_70%)]" />
           </div>
 
-          {aiError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-              <p className="text-sm text-red-800">{aiError}</p>
+          <div className="relative">
+            <div className="mb-7 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="flex items-baseline gap-3 font-display text-xl font-medium text-white">
+                  <span className="text-sm tabular-nums text-cyan-400">02</span>
+                  Generate with AI
+                </h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  Draft multiple-choice questions, then review and edit them below.
+                </p>
+              </div>
+              <span className="rounded-full border border-cyan-400/40 px-2.5 py-0.5 text-xs font-medium text-cyan-400">
+                AI
+              </span>
             </div>
-          )}
-          {aiNote && (
-            <div className="rounded-lg border border-green-200 bg-green-50 p-3">
-              <p className="text-sm text-green-800">{aiNote}</p>
-            </div>
-          )}
 
-          <div>
-            <button
-              type="button"
-              disabled={aiLoading}
-              onClick={handleGenerate}
-              className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {aiLoading ? "Generating... this can take up to a minute" : "Generate questions"}
-            </button>
-          </div>
-        </div>
-      </div>
+            <div className="flex flex-col gap-5">
+              <div>
+                <label className={darkLabel}>Topic</label>
+                <input
+                  className={darkInput}
+                  value={aiTopic}
+                  onChange={(e) => setAiTopic(e.target.value)}
+                  placeholder="e.g. Binary trees and traversal"
+                  maxLength={200}
+                />
+              </div>
 
-      </div>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <div>
+                  <label className={darkLabel}>Questions (1-15)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={15}
+                    className={darkInput}
+                    value={aiCount}
+                    onChange={(e) => setAiCount(Number(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <label className={darkLabel}>Difficulty</label>
+                  <div className="flex gap-1 rounded-md border border-white/10 bg-white/5 p-1">
+                    {DIFFICULTIES.map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => setAiDifficulty(d.id)}
+                        className={`flex-1 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                          aiDifficulty === d.id
+                            ? "bg-cyan-400 text-navy-950"
+                            : "text-slate-300 hover:text-white"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
 
-      {/* Questions */}
-      <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="font-display text-xl font-semibold text-gray-900">Questions ({questions.length})</h2>
-        <p className="text-sm text-gray-500">
-          Total marks: {questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0)}
-        </p>
-      </div>
-      <div className="mb-4 grid gap-4 lg:grid-cols-2">
-        {questions.map((q, qi) => (
-          <div key={q.id ?? `new-${qi}`} className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-5">
-            <div className="flex items-center justify-between">
-              <p className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-                Question {qi + 1}
-                {q.ai && (
-                  <span className="rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-800">
-                    AI draft
-                  </span>
-                )}
-              </p>
-              {questions.length > 1 && (
+              <div>
+                <label className={darkLabel}>
+                  Study material <span className="normal-case tracking-normal text-slate-500">(optional)</span>
+                </label>
+                <textarea
+                  className={`${darkInput} resize-none`}
+                  rows={4}
+                  maxLength={6000}
+                  value={aiContext}
+                  onChange={(e) => setAiContext(e.target.value)}
+                  placeholder="Paste notes or a passage. Questions will be based only on this text."
+                />
+                <p className="mt-1 text-right text-xs text-slate-500">{aiContext.length} / 6000</p>
+              </div>
+
+              {aiError && (
+                <p className="border-l-2 border-rose-400 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{aiError}</p>
+              )}
+              {aiNote && (
+                <p className="border-l-2 border-emerald-400 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+                  {aiNote}
+                </p>
+              )}
+
+              <div>
                 <button
                   type="button"
-                  className="text-sm font-medium text-red-700 hover:text-red-900"
-                  onClick={() => removeQuestion(qi)}
+                  disabled={aiLoading}
+                  onClick={handleGenerate}
+                  className="inline-flex items-center justify-center rounded-lg bg-cyan-400 px-6 py-3 text-sm font-medium text-navy-950 transition-colors hover:bg-white disabled:opacity-60"
                 >
-                  Remove
+                  {aiLoading ? "Generating... this can take up to a minute" : "Generate questions"}
                 </button>
-              )}
-            </div>
-            <textarea
-              className={inputClass}
-              rows={2}
-              placeholder="Question text"
-              value={q.text}
-              onChange={(e) => updateQuestion(qi, { text: e.target.value })}
-            />
-            {q.options.map((opt, oi) => (
-              <div key={oi} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name={`correct-${qi}`}
-                  checked={q.correct === oi}
-                  onChange={() => updateQuestion(qi, { correct: oi })}
-                  title="Mark as correct answer"
-                  className="accent-indigo-600"
-                />
-                <input
-                  className={inputClass}
-                  placeholder={`Option ${oi + 1}`}
-                  value={opt}
-                  onChange={(e) => updateOption(qi, oi, e.target.value)}
-                />
               </div>
-            ))}
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Marks</label>
-              <input
-                type="number"
-                min={1}
-                className="w-20 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-600/20"
-                value={q.marks}
-                onChange={(e) => updateQuestion(qi, { marks: Number(e.target.value) })}
-              />
-              <span className="ml-2 text-xs text-gray-500">Select the radio button next to the correct option</span>
             </div>
-            {q.explanation && (
-              <p className="rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                <span className="font-medium text-gray-800">Why: </span>
-                {q.explanation}
-              </p>
-            )}
           </div>
-        ))}
-      </div>
+        </section>
+      </Reveal>
 
-      <button
-        type="button"
-        className="mb-8 rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
-        onClick={() => setQuestions((qs) => [...qs, emptyQuestion()])}
-      >
-        + Add question
-      </button>
+      {/* 03 Questions: numbered rows divided by hairlines, no cards */}
+      <section className="mt-16">
+        <div className="mb-2 flex items-baseline justify-between border-t border-gray-300 pt-4">
+          <h2 className="flex items-baseline gap-3 font-display text-xl font-medium text-gray-900">
+            <span className="text-sm tabular-nums text-indigo-700">03</span>
+            Questions
+            <span className="text-base text-gray-500">({questions.length})</span>
+          </h2>
+          <p className="text-sm text-gray-500">
+            Total marks <span className="font-display text-lg tabular-nums text-gray-900">{totalMarks}</span>
+          </p>
+        </div>
 
-      <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2 text-sm text-gray-800">
-          <input
-            type="checkbox"
-            checked={publish}
-            onChange={(e) => setPublish(e.target.checked)}
-            className="accent-indigo-600"
-          />
-          {isEdit ? "Published (students can see it)" : "Publish immediately (students can see it)"}
-        </label>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-800 transition-colors hover:bg-gray-50"
-            onClick={() => navigate("/admin/dashboard")}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={saving}
-            className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
-            onClick={handleSubmit}
-          >
-            {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Exam"}
-          </button>
+        <div className="divide-y divide-gray-200">
+          {questions.map((q, qi) => (
+            <Reveal
+              key={q.id ?? `new-${qi}`}
+              delay={Math.min(qi, 6) * 0.04}
+              className="grid gap-4 py-8 md:grid-cols-[72px_minmax(0,1fr)] md:gap-6"
+            >
+              <span className="font-display text-5xl font-light tabular-nums leading-none text-gray-300">
+                {String(qi + 1).padStart(2, "0")}
+              </span>
+
+              <div className="flex flex-col gap-5">
+                <div className="flex items-start gap-4">
+                  <textarea
+                    className={`${inputClass} flex-1 resize-none font-display text-lg`}
+                    rows={2}
+                    placeholder="Question text"
+                    value={q.text}
+                    onChange={(e) => updateQuestion(qi, { text: e.target.value })}
+                  />
+                  <div className="flex shrink-0 flex-col items-end gap-1.5 pt-2">
+                    {q.ai && (
+                      <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-800">
+                        AI draft
+                      </span>
+                    )}
+                    {questions.length > 1 && (
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-gray-500 transition-colors hover:text-red-700"
+                        onClick={() => removeQuestion(qi)}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid gap-x-10 gap-y-1 md:grid-cols-2">
+                  {q.options.map((opt, oi) => (
+                    <div key={oi} className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name={`correct-${qi}`}
+                        checked={q.correct === oi}
+                        onChange={() => updateQuestion(qi, { correct: oi })}
+                        title="Mark as correct answer"
+                        className="h-4 w-4 shrink-0 accent-indigo-600"
+                      />
+                      <input
+                        className={inputClass}
+                        placeholder={`Option ${oi + 1}`}
+                        value={opt}
+                        onChange={(e) => updateOption(qi, oi, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-500">
+                  <label className="flex items-center gap-2">
+                    Marks
+                    <input
+                      type="number"
+                      min={1}
+                      className="w-16 border-0 border-b border-gray-300 bg-transparent px-0 py-1 text-center text-base tabular-nums text-gray-900 focus:border-indigo-600 focus:outline-none focus:ring-0"
+                      value={q.marks}
+                      onChange={(e) => updateQuestion(qi, { marks: Number(e.target.value) })}
+                    />
+                  </label>
+                  <span className="text-xs">Select the radio button next to the correct option</span>
+                </div>
+
+                {q.explanation && (
+                  <p className="border-l-2 border-indigo-200 pl-3 text-sm leading-relaxed text-gray-600">
+                    <span className="font-medium text-gray-800">Why: </span>
+                    {q.explanation}
+                  </p>
+                )}
+              </div>
+            </Reveal>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className="mt-2 text-sm font-medium text-indigo-700 transition-colors hover:text-indigo-900"
+          onClick={() => setQuestions((qs) => [...qs, emptyQuestion()])}
+        >
+          + Add question
+        </button>
+      </section>
+
+      {/* Sticky action bar */}
+      <div className="sticky bottom-0 -mx-6 mt-16 border-t border-gray-200 bg-white/85 px-6 py-4 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+          <label className="flex items-center gap-2 text-sm text-gray-800">
+            <input
+              type="checkbox"
+              checked={publish}
+              onChange={(e) => setPublish(e.target.checked)}
+              className="h-4 w-4 accent-indigo-600"
+            />
+            {isEdit ? "Published (students can see it)" : "Publish immediately (students can see it)"}
+          </label>
+          <div className="flex gap-3">
+            <Button variant="secondary" size="lg" onClick={() => navigate("/admin/dashboard")}>
+              Cancel
+            </Button>
+            <Button size="lg" loading={saving} onClick={handleSubmit}>
+              {saving ? "Saving..." : isEdit ? "Save changes" : "Create exam"}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

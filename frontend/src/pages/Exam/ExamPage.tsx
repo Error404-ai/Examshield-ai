@@ -154,13 +154,13 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
         <main className="flex flex-col px-6 py-8 lg:px-14 lg:py-12">
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
             {error && (
-              <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              <div role="alert" className="mb-6 border-l-2 border-red-500 bg-red-50/70 px-4 py-3 text-sm text-red-800">
                 {error}
               </div>
             )}
 
             {!started ? (
-              <div className="my-auto rounded-lg border border-gray-200 bg-white p-10">
+              <div className="my-auto border-t border-gray-300 pt-10">
                 <h2 className="font-display text-2xl font-semibold text-gray-900">Before you begin</h2>
                 <p className="mt-3 max-w-xl text-base leading-relaxed text-gray-600">
                   This exam is proctored. When you start, it opens in fullscreen and your camera turns on. Video
@@ -193,7 +193,7 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
                 </Button>
               </div>
             ) : !cameraReady ? (
-              <div className="my-auto rounded-lg border border-gray-200 bg-white p-10">
+              <div className="my-auto border-t border-gray-300 pt-10">
                 {cameraError ? (
                   <>
                     <h2 className="font-display text-2xl font-semibold text-gray-900">Camera access is required</h2>

@@ -44,3 +44,10 @@
     linear-gradient(90deg, rgba(14,116,144,0.07) 1px, transparent 1px);
   background-size: 40px 40px;
 }
+
+.bg-grid-dark {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+}

@@ -108,12 +108,12 @@ export const AdminDashboard: React.FC = () => {
           </h2>
 
           {exams.length === 0 ? (
-            <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 px-6 text-center">
+            <div className="flex min-h-[260px] flex-col items-center justify-center border-y border-gray-200 px-6 text-center">
               <p className="mb-4 text-gray-700">No exams created yet.</p>
               <Button onClick={() => navigate("/admin/exams/new")}>Create your first exam</Button>
             </div>
           ) : (
-            <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
+            <ul className="divide-y divide-gray-200 border-y border-gray-200">
               {exams.map((exam, i) => (
                 <ExamCard
                   key={exam._id}
@@ -130,15 +130,25 @@ export const AdminDashboard: React.FC = () => {
         </section>
 
         <aside className="flex flex-col gap-8">
-          <section className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-5">
-            <h2 className="font-display text-base font-semibold text-gray-900">Build an exam faster</h2>
-            <p className="mt-1 text-sm leading-relaxed text-gray-600">
-              Give the AI a topic, a difficulty and optional study notes. It drafts multiple-choice questions
-              for you to review and edit.
-            </p>
-            <Button className="mt-4" size="sm" onClick={() => navigate("/admin/exams/new")}>
-              Generate with AI
-            </Button>
+          <section className="relative overflow-hidden rounded-xl bg-navy-900 p-6 text-slate-200">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(22rem_12rem_at_100%_0%,rgba(34,211,238,0.16),transparent_70%)]"
+            />
+            <div className="relative">
+              <h2 className="font-display text-lg font-medium text-white">Build an exam faster</h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                Give the AI a topic, a difficulty and optional study notes. It drafts multiple-choice questions
+                for you to review and edit.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate("/admin/exams/new")}
+                className="mt-5 inline-flex items-center justify-center rounded-lg bg-cyan-400 px-4 py-2 text-sm font-medium text-navy-950 transition-colors hover:bg-white"
+              >
+                Generate with AI
+              </button>
+            </div>
           </section>
 
           <section>
@@ -146,11 +156,11 @@ export const AdminDashboard: React.FC = () => {
               Drafts
             </h2>
             {drafts.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500">
+              <p className="border-y border-gray-200 px-4 py-8 text-center text-sm text-gray-500">
                 No unpublished exams.
               </p>
             ) : (
-              <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
+              <ul className="divide-y divide-gray-200 border-y border-gray-200">
                 {drafts.map((e) => (
                   <li key={e._id}>
                     <button

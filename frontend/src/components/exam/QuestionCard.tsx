@@ -36,16 +36,16 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, ans
       </h2>
 
       {isChoice && question.options && (
-        <div role="radiogroup" className="mt-8 flex flex-col gap-3">
+        <div role="radiogroup" className="mt-8 flex flex-col border-t border-gray-200">
           {question.options.map((option, i) => {
             const selected = answer === option;
             return (
               <label
                 key={i}
-                className={`flex cursor-pointer items-center gap-3 rounded-lg border px-5 py-4 transition-colors ${
+                className={`flex cursor-pointer items-center gap-4 border-b px-3 py-5 transition-colors ${
                   selected
-                    ? "border-indigo-600 bg-indigo-50"
-                    : "border-gray-200 bg-white hover:border-gray-300"
+                    ? "border-indigo-600 bg-indigo-50/60"
+                    : "border-gray-200 hover:bg-gray-50"
                 }`}
               >
                 <input

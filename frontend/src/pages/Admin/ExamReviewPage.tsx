@@ -228,7 +228,7 @@ export const ExamReviewPage: React.FC = () => {
           </div>
 
           {/* Table */}
-          <div className="mb-6 overflow-x-auto rounded-lg border border-gray-200 bg-white">
+          <div className="mb-6 overflow-x-auto border-y border-gray-200">
             {visible.length === 0 ? (
               <p className="p-8 text-center text-sm text-gray-600">
                 {sessions.length === 0 ? "No students have started this exam yet." : "No flagged sessions."}
@@ -290,7 +290,7 @@ export const ExamReviewPage: React.FC = () => {
 
           {/* Detail */}
           {selectedId && (
-            <div className="rounded-lg border border-gray-200 bg-white p-6">
+            <div className="border-t border-gray-300 pt-6">
               {detailLoading || !detail ? (
                 <div className="flex justify-center py-6">
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />

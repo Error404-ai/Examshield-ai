@@ -53,7 +53,7 @@ export const ExamAnalyticsPanel: React.FC<{ examId: string }> = ({ examId }) => 
 
   if (data.attempts === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-gray-300 px-6 py-12 text-center text-gray-600">
+      <div className="border-y border-gray-200 px-6 py-12 text-center text-gray-600">
         Analytics will appear once students have submitted this exam.
       </div>
     );
@@ -64,7 +64,7 @@ export const ExamAnalyticsPanel: React.FC<{ examId: string }> = ({ examId }) => 
   return (
     <div className="flex flex-col gap-8">
       {/* Summary */}
-      <dl className="grid grid-cols-2 gap-y-4 rounded-lg border border-gray-200 bg-white sm:grid-cols-4 sm:gap-y-0">
+      <dl className="grid grid-cols-2 gap-y-4 border-y border-gray-300 sm:grid-cols-4 sm:gap-y-0">
         <Stat label="Submissions" value={data.attempts} />
         <Stat
           label="Pass rate"
@@ -84,7 +84,7 @@ export const ExamAnalyticsPanel: React.FC<{ examId: string }> = ({ examId }) => 
       </dl>
 
       {/* Distribution */}
-      <section className="rounded-lg border border-gray-200 bg-white p-6">
+      <section className="border-t border-gray-300 pt-6">
         <h3 className="mb-4 font-display text-lg font-semibold text-gray-900">Score distribution</h3>
         <div className="flex h-44 items-end gap-2">
           {data.distribution.map((b) => (
@@ -112,7 +112,7 @@ export const ExamAnalyticsPanel: React.FC<{ examId: string }> = ({ examId }) => 
           Share of students who answered correctly. Hardest questions first; very low scores can point
           to an unclear question or a wrong answer key.
         </p>
-        <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <ul className="divide-y divide-gray-200 border-y border-gray-200">
           {data.questions.map((q, i) => (
             <li key={q.question_id} className="px-5 py-4">
               <div className="mb-2 flex items-start justify-between gap-3">

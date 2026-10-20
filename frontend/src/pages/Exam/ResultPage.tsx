@@ -105,7 +105,7 @@ export const ResultPage: React.FC = () => {
       <div className="grid gap-10 lg:grid-cols-[340px_minmax(0,1fr)]">
         {/* Score summary */}
         <Reveal className="lg:sticky lg:top-20 lg:self-start">
-          <div className="rounded-lg border border-gray-200 bg-white p-6">
+          <div className="border-t border-gray-300 pt-6">
             <h1 className="font-display text-2xl font-medium text-gray-900">
               {result.exam_title || "Exam result"}
             </h1>
