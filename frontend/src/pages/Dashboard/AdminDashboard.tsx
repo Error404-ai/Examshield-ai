@@ -1,5 +1,7 @@
 /**
  * Admin Dashboard Page
+ * Wide two-column layout: all exams on the left, drafts and a quick start
+ * on the right.
  */
 
 import React, { useEffect, useState } from "react";
@@ -8,7 +10,7 @@ import { adminService } from "../../services/examService";
 import { ExamCard } from "../../components/exam/ExamCard";
 import { StatStrip } from "../../components/common/Statstrip";
 import { Button } from "../../components/common/Button";
-import { Alert } from "../../components/common/Badge";
+import { Alert, Badge } from "../../components/common/Badge";
 import { getErrorMessage } from "../../utils";
 import { AdminStats, Exam, UserRole } from "../../types";
 
@@ -50,6 +52,8 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+  const drafts = exams.filter((e) => !e.is_published);
+
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -62,7 +66,7 @@ export const AdminDashboard: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
+    <div className="mx-auto min-h-[calc(100vh-3.5rem)] max-w-7xl px-6 py-10 lg:px-10">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-semibold text-gray-900">Admin dashboard</h1>
@@ -92,29 +96,72 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      <h2 className="mb-4 mt-10 border-b border-gray-200 pb-2 font-display text-xl font-semibold text-gray-900">
-        All exams
-      </h2>
+      <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <section>
+          <h2 className="mb-4 border-b border-gray-200 pb-2 font-display text-xl font-semibold text-gray-900">
+            All exams
+          </h2>
 
-      {exams.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-300 px-6 py-12 text-center">
-          <p className="mb-4 text-gray-700">No exams created yet.</p>
-          <Button onClick={() => navigate("/admin/exams/new")}>Create your first exam</Button>
-        </div>
-      ) : (
-        <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
-          {exams.map((exam) => (
-            <ExamCard
-              key={exam._id}
-              exam={exam}
-              role={UserRole.ADMIN}
-              onEdit={(id) => navigate(`/admin/exams/${id}/edit`)}
-              onViewResults={(id) => navigate(`/admin/exams/${id}/review`)}
-              onDelete={handleDelete}
-            />
-          ))}
-        </ul>
-      )}
+          {exams.length === 0 ? (
+            <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 px-6 text-center">
+              <p className="mb-4 text-gray-700">No exams created yet.</p>
+              <Button onClick={() => navigate("/admin/exams/new")}>Create your first exam</Button>
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
+              {exams.map((exam) => (
+                <ExamCard
+                  key={exam._id}
+                  exam={exam}
+                  role={UserRole.ADMIN}
+                  onEdit={(id) => navigate(`/admin/exams/${id}/edit`)}
+                  onViewResults={(id) => navigate(`/admin/exams/${id}/review`)}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <aside className="flex flex-col gap-8">
+          <section className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-5">
+            <h2 className="font-display text-base font-semibold text-gray-900">Build an exam faster</h2>
+            <p className="mt-1 text-sm leading-relaxed text-gray-600">
+              Give the AI a topic, a difficulty and optional study notes. It drafts multiple-choice questions
+              for you to review and edit.
+            </p>
+            <Button className="mt-4" size="sm" onClick={() => navigate("/admin/exams/new")}>
+              Generate with AI
+            </Button>
+          </section>
+
+          <section>
+            <h2 className="mb-3 border-b border-gray-200 pb-2 font-display text-xl font-semibold text-gray-900">
+              Drafts
+            </h2>
+            {drafts.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500">
+                No unpublished exams.
+              </p>
+            ) : (
+              <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                {drafts.map((e) => (
+                  <li key={e._id}>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/admin/exams/${e._id}/edit`)}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50"
+                    >
+                      <span className="truncate text-sm font-medium text-gray-900">{e.title}</span>
+                      <Badge variant="neutral">Draft</Badge>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </aside>
+      </div>
     </div>
   );
 };

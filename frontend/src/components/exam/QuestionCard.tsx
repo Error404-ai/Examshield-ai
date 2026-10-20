@@ -30,19 +30,19 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, ans
       </p>
       <h2
         id={`q-${question._id}`}
-        className="mt-2 font-display text-2xl font-medium leading-snug text-gray-900"
+        className="mt-3 font-display text-2xl font-medium leading-snug text-gray-900 lg:text-3xl"
       >
         {question.question_text}
       </h2>
 
       {isChoice && question.options && (
-        <div role="radiogroup" className="mt-6 flex flex-col gap-2">
+        <div role="radiogroup" className="mt-8 flex flex-col gap-3">
           {question.options.map((option, i) => {
             const selected = answer === option;
             return (
               <label
                 key={i}
-                className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 transition-colors ${
+                className={`flex cursor-pointer items-center gap-3 rounded-lg border px-5 py-4 transition-colors ${
                   selected
                     ? "border-indigo-600 bg-indigo-50"
                     : "border-gray-200 bg-white hover:border-gray-300"
@@ -54,9 +54,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, ans
                   value={option}
                   checked={selected}
                   onChange={() => handleSelect(option)}
-                  className="h-4 w-4 accent-indigo-600"
+                  className="h-5 w-5 accent-indigo-600"
                 />
-                <span className="text-base text-gray-800">{option}</span>
+                <span className="text-lg text-gray-800">{option}</span>
               </label>
             );
           })}
@@ -65,7 +65,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, ans
 
       {isText && (
         <textarea
-          rows={question.question_type === QuestionType.ESSAY ? 8 : 3}
+          rows={question.question_type === QuestionType.ESSAY ? 12 : 5}
           value={answer || ""}
           onChange={(e) => handleSelect(e.target.value)}
           placeholder="Type your answer here"

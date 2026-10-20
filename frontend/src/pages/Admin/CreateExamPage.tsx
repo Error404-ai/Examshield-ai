@@ -246,7 +246,7 @@ export const CreateExamPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-8">
+    <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
       <h1 className="font-display text-3xl font-semibold text-gray-900">{isEdit ? "Edit Exam" : "Create Exam"}</h1>
       <p className="mb-6 mt-1 text-gray-500">
         {isEdit
@@ -260,8 +260,9 @@ export const CreateExamPage: React.FC = () => {
         </div>
       )}
 
+      <div className="mb-6 grid items-start gap-6 lg:grid-cols-2">
       {/* Details */}
-      <div className="mb-6 flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-6">
+      <div className="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-6">
         <div>
           <label className={labelClass}>Title</label>
           <input
@@ -306,7 +307,7 @@ export const CreateExamPage: React.FC = () => {
       </div>
 
       {/* AI generator */}
-      <div className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50/50 p-6">
+      <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-6">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-lg font-semibold text-gray-900">Generate with AI</h2>
@@ -403,6 +404,8 @@ export const CreateExamPage: React.FC = () => {
         </div>
       </div>
 
+      </div>
+
       {/* Questions */}
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="font-display text-xl font-semibold text-gray-900">Questions ({questions.length})</h2>
@@ -410,7 +413,7 @@ export const CreateExamPage: React.FC = () => {
           Total marks: {questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0)}
         </p>
       </div>
-      <div className="mb-4 flex flex-col gap-4">
+      <div className="mb-4 grid gap-4 lg:grid-cols-2">
         {questions.map((q, qi) => (
           <div key={q.id ?? `new-${qi}`} className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-5">
             <div className="flex items-center justify-between">

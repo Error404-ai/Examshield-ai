@@ -124,10 +124,10 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
   const needsFullscreen = started && fullscreenSupported && !isFullscreen && !submitting;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="flex min-h-screen flex-col bg-gray-50">
       {/* Title + timer */}
       <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-6">
+        <div className="flex h-14 items-center justify-between gap-4 px-6 lg:px-10">
           <h1 className="truncate font-display text-base font-semibold text-gray-900">{exam.title}</h1>
           <div
             role="timer"
@@ -141,75 +141,100 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-6xl gap-10 px-6 py-8 lg:grid-cols-[minmax(0,1fr)_300px]">
-        {/* Question column */}
-        <main>
-          {error && (
-            <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-              {error}
-            </div>
-          )}
+      <div className="grid flex-1 lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Question column: content on top, navigation pinned to the bottom */}
+        <main className="flex flex-col px-6 py-8 lg:px-14 lg:py-12">
+          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
+            {error && (
+              <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {error}
+              </div>
+            )}
 
-          {!started ? (
-            <div className="rounded-lg border border-gray-200 bg-white p-8">
-              <h2 className="font-display text-xl font-semibold text-gray-900">Before you begin</h2>
-              <p className="mt-3 max-w-lg text-sm leading-relaxed text-gray-600">
-                This exam is proctored. When you start, it opens in fullscreen and your camera turns on. Video
-                stays on your device and only short event records are sent. Leaving the tab or fullscreen is
-                recorded, and the exam is submitted automatically after {MAX_TAB_SWITCHES} tab switches.
-              </p>
-              <p className="mt-3 text-sm text-gray-600">Your timer has already started.</p>
-              <Button className="mt-6" size="lg" onClick={handleStart}>
-                Start exam
-              </Button>
-            </div>
-          ) : !cameraReady ? (
-            <div className="rounded-lg border border-gray-200 bg-white p-8">
-              {cameraError ? (
-                <>
-                  <h2 className="font-display text-xl font-semibold text-gray-900">Camera access is required</h2>
-                  <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-600">
-                    {cameraError} You can find the camera icon in your browser&rsquo;s address bar.
-                  </p>
-                  <Button className="mt-5" onClick={handleStart}>
-                    Try again
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <div className="mb-3 h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
-                  <p className="text-sm text-gray-700">Setting up your camera.</p>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Click &ldquo;Allow&rdquo; when your browser asks for camera access.
-                  </p>
-                </>
-              )}
-            </div>
-          ) : (
-            <>
-              <QuestionCard question={q} index={index} answer={answers[q._id] || ""} onAnswer={handleAnswer} />
-
-              <div className="mt-10 flex items-center justify-between border-t border-gray-200 pt-6">
-                <Button
-                  variant="secondary"
-                  onClick={() => setIndex((i) => Math.max(0, i - 1))}
-                  disabled={index === 0}
-                >
-                  Previous
-                </Button>
-                <span className="text-sm tabular-nums text-gray-500">
-                  {index + 1} of {questions.length}
-                </span>
-                <Button onClick={() => setIndex((i) => i + 1)} disabled={isLast}>
-                  Next
+            {!started ? (
+              <div className="my-auto rounded-lg border border-gray-200 bg-white p-10">
+                <h2 className="font-display text-2xl font-semibold text-gray-900">Before you begin</h2>
+                <p className="mt-3 max-w-xl text-base leading-relaxed text-gray-600">
+                  This exam is proctored. When you start, it opens in fullscreen and your camera turns on. Video
+                  stays on your device and only short event records are sent. Leaving the tab or fullscreen is
+                  recorded, and the exam is submitted automatically after {MAX_TAB_SWITCHES} tab switches.
+                </p>
+                <dl className="mt-6 grid max-w-xl grid-cols-3 gap-4 border-t border-gray-200 pt-6 text-sm">
+                  <div>
+                    <dt className="text-gray-500">Questions</dt>
+                    <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-gray-900">
+                      {questions.length}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Time left</dt>
+                    <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-gray-900">
+                      {formattedTime}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Total marks</dt>
+                    <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-gray-900">
+                      {exam.total_marks}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="mt-6 text-sm text-gray-600">Your timer has already started.</p>
+                <Button className="mt-4" size="lg" onClick={handleStart}>
+                  Start exam
                 </Button>
               </div>
-            </>
-          )}
+            ) : !cameraReady ? (
+              <div className="my-auto rounded-lg border border-gray-200 bg-white p-10">
+                {cameraError ? (
+                  <>
+                    <h2 className="font-display text-2xl font-semibold text-gray-900">Camera access is required</h2>
+                    <p className="mt-2 max-w-md text-base leading-relaxed text-gray-600">
+                      {cameraError} You can find the camera icon in your browser&rsquo;s address bar.
+                    </p>
+                    <Button className="mt-5" onClick={handleStart}>
+                      Try again
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-3 h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+                    <p className="text-base text-gray-700">Setting up your camera.</p>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Click &ldquo;Allow&rdquo; when your browser asks for camera access.
+                    </p>
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="flex-1">
+                  <QuestionCard question={q} index={index} answer={answers[q._id] || ""} onAnswer={handleAnswer} />
+                </div>
+
+                <div className="mt-10 flex items-center justify-between border-t border-gray-200 pt-6">
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                    disabled={index === 0}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm tabular-nums text-gray-500">
+                    {index + 1} of {questions.length}
+                  </span>
+                  <Button size="lg" onClick={() => setIndex((i) => i + 1)} disabled={isLast}>
+                    Next
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
         </main>
 
-        {/* Sidebar */}
-        <aside className="flex flex-col gap-8 lg:sticky lg:top-24 lg:self-start">
+        {/* Sidebar: full-height panel, submit pinned to the bottom */}
+        <aside className="flex flex-col gap-8 border-t border-gray-200 bg-white px-6 py-8 lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-y-auto lg:border-l lg:border-t-0">
           <ProctoringOverlay
             videoRef={videoRef}
             cameraReady={cameraReady}
@@ -241,7 +266,7 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
                     disabled={!canAnswer}
                     aria-label={`Question ${i + 1}${answered ? ", answered" : ""}`}
                     aria-current={current ? "true" : undefined}
-                    className={`h-9 rounded-md border text-sm tabular-nums transition-colors disabled:opacity-50 ${
+                    className={`h-10 rounded-md border text-sm tabular-nums transition-colors disabled:opacity-50 ${
                       current
                         ? "border-indigo-600 bg-indigo-600 text-white"
                         : answered
@@ -256,7 +281,7 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
             </div>
           </div>
 
-          <Button onClick={handleSubmitClick} loading={submitting} disabled={!started} className="w-full" size="lg">
+          <Button onClick={handleSubmitClick} loading={submitting} disabled={!started} className="mt-auto w-full" size="lg">
             Submit exam
           </Button>
         </aside>
