@@ -246,7 +246,7 @@ export const CreateExamPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
+    <div className="mx-auto max-w-7xl px-6 py-10">
       <h1 className="font-display text-3xl font-semibold text-gray-900">{isEdit ? "Edit Exam" : "Create Exam"}</h1>
       <p className="mb-6 mt-1 text-gray-500">
         {isEdit
@@ -260,7 +260,7 @@ export const CreateExamPage: React.FC = () => {
         </div>
       )}
 
-      <div className="mb-6 grid items-start gap-6 lg:grid-cols-2">
+      <div className="mb-6 grid items-stretch gap-6 lg:grid-cols-2">
       {/* Details */}
       <div className="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-6">
         <div>
@@ -272,10 +272,10 @@ export const CreateExamPage: React.FC = () => {
             placeholder="e.g. Data Structures Midterm"
           />
         </div>
-        <div>
+        <div className="flex flex-1 flex-col">
           <label className={labelClass}>Description</label>
           <textarea
-            className={inputClass}
+            className={`${inputClass} min-h-[96px] flex-1 resize-none`}
             rows={2}
             value={description}
             onChange={(e) => setDescription(e.target.value)}

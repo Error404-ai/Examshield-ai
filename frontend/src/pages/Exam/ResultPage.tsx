@@ -62,7 +62,7 @@ export const ResultPage: React.FC = () => {
   const correctCount = answers.filter((a) => a.is_correct).length;
 
   return (
-    <div className="mx-auto min-h-[calc(100vh-3.5rem)] max-w-7xl px-6 py-10 lg:px-10">
+    <div className="mx-auto min-h-[calc(100vh-3.5rem)] max-w-7xl px-6 py-10">
       {error && (
         <div className="mb-6">
           <Alert variant="error">{error}</Alert>

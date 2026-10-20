@@ -66,7 +66,7 @@ export const AdminDashboard: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto min-h-[calc(100vh-3.5rem)] max-w-7xl px-6 py-10 lg:px-10">
+    <div className="mx-auto min-h-[calc(100vh-3.5rem)] max-w-7xl px-6 py-10">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-semibold text-gray-900">Admin dashboard</h1>

@@ -81,7 +81,7 @@ export const StudentDashboard: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto min-h-[calc(100vh-3.5rem)] max-w-7xl px-6 py-10 lg:px-10">
+    <div className="mx-auto min-h-[calc(100vh-3.5rem)] max-w-7xl px-6 py-10">
       <h1 className="font-display text-3xl font-semibold text-gray-900">Welcome back, {firstName}</h1>
       <p className="mt-1 text-gray-500">Here&rsquo;s where your exams stand.</p>
 
