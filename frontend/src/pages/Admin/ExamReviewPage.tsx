@@ -2,20 +2,23 @@
  * Exam Review Page (admin)
  * Two tabs: proctoring review of sessions, and exam analytics.
  * Sessions auto-refresh so an exam can be watched live.
+ * Flags are decided here or in the cross-exam queue (/admin/integrity).
  */
 
 import { PageHeader } from "../../components/common/PageHeader";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   proctoringService,
   SessionSummary,
   SessionAlertsDetail,
   Recommendation,
 } from "../../services/proctoringService";
+import { STATUS_LABEL, STATUS_VARIANT } from "../../services/integrityService";
 import { ExamAnalyticsPanel } from "../../components/admin/ExamAnalyticsPanel";
+import { IntegrityDecisionPanel } from "../../components/admin/IntegrityDecisionPanel";
 import { StatStrip } from "../../components/common/Statstrip";
-import { Alert } from "../../components/common/Badge";
+import { Alert, Badge } from "../../components/common/Badge";
 import { SessionStatus } from "../../types";
 import {
   formatDateTime,
@@ -35,6 +38,7 @@ const typeLabel: Record<string, string> = {
   looking_away: "Looking away",
   eyes_closed: "Eyes closed",
   camera_blocked: "Camera blocked",
+  phone_detected: "Phone seen",
 };
 
 const recLabel: Record<Recommendation, string> = {
@@ -80,6 +84,7 @@ export const ExamReviewPage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SessionAlertsDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [tick, setTick] = useState(0); // bumped after a decision to refetch the detail
   const detailIdRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
@@ -127,7 +132,12 @@ export const ExamReviewPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedId, selectedAlertCount]);
+  }, [selectedId, selectedAlertCount, tick]);
+
+  const onDecided = () => {
+    setTick((t) => t + 1);
+    load();
+  };
 
   const flagged = sessions.filter((s) => s.recommendation !== "approve").length;
   const live = sessions.filter((s) => s.status === SessionStatus.ONGOING).length;
@@ -160,6 +170,11 @@ export const ExamReviewPage: React.FC = () => {
         eyebrow="Exam review"
         title={examTitle || "Exam"}
         subtitle="Results, AI proctoring review and exam analytics."
+        actions={
+          <Link to="/admin/integrity" className="text-sm font-medium text-indigo-700 hover:text-indigo-900">
+            Open the integrity queue
+          </Link>
+        }
       />
 
       {error && (
@@ -241,6 +256,7 @@ export const ExamReviewPage: React.FC = () => {
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Score</th>
                     <th className="px-4 py-3 font-medium">Proctoring risk</th>
+                    <th className="px-4 py-3 font-medium">Integrity</th>
                     <th className="px-4 py-3 font-medium">Alerts</th>
                     <th className="px-4 py-3 font-medium">Submitted</th>
                   </tr>
@@ -277,6 +293,15 @@ export const ExamReviewPage: React.FC = () => {
                           <RiskBadge rec={s.recommendation} />
                         </div>
                       </td>
+                      <td className="px-4 py-3">
+                        {s.integrity_status && s.integrity_status !== "clear" ? (
+                          <Badge variant={STATUS_VARIANT[s.integrity_status]} dot>
+                            {STATUS_LABEL[s.integrity_status]}
+                          </Badge>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 tabular-nums text-gray-700">{s.total_alerts}</td>
                       <td className="px-4 py-3 text-xs text-gray-500">
                         {s.submitted_at ? formatDateTime(s.submitted_at) : "—"}
@@ -296,54 +321,60 @@ export const ExamReviewPage: React.FC = () => {
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
                 </div>
               ) : (
-                <>
-                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h2 className="font-display text-lg font-semibold text-gray-900">{detail.student_name}</h2>
-                      <p className="text-sm text-gray-500">{detail.student_email}</p>
+                <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
+                  <div>
+                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h2 className="font-display text-lg font-semibold text-gray-900">{detail.student_name}</h2>
+                        <p className="text-sm text-gray-500">{detail.student_email}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <RiskBar score={detail.suspicion_score} rec={detail.recommendation} />
+                        <RiskBadge rec={detail.recommendation} />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <RiskBar score={detail.suspicion_score} rec={detail.recommendation} />
-                      <RiskBadge rec={detail.recommendation} />
-                    </div>
+
+                    {Object.keys(detail.counts).length > 0 && (
+                      <div className="mb-5 flex flex-wrap gap-2">
+                        {Object.entries(detail.counts).map(([type, n]) => (
+                          <span
+                            key={type}
+                            className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-700"
+                          >
+                            {typeLabel[type] ?? type}: <strong>{n}</strong>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <h3 className="mb-2 text-sm font-semibold text-gray-900">Timeline</h3>
+                    {detail.alerts.length === 0 ? (
+                      <p className="text-sm text-gray-500">No suspicious activity recorded.</p>
+                    ) : (
+                      <div className="flex max-h-96 flex-col gap-1.5 overflow-y-auto">
+                        {detail.alerts.map((a, i) => (
+                          <div
+                            key={i}
+                            className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm ${getAlertSeverityColor(
+                              a.severity
+                            )}`}
+                          >
+                            <span className="shrink-0 text-xs tabular-nums opacity-70">
+                              {new Date(a.timestamp).toLocaleTimeString("en-IN")}
+                            </span>
+                            <span className="shrink-0 font-medium">{typeLabel[a.alert_type] ?? a.alert_type}</span>
+                            <span className="opacity-80">{a.description}</span>
+                            <span className="ml-auto text-xs uppercase opacity-70">{a.severity}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  {Object.keys(detail.counts).length > 0 && (
-                    <div className="mb-5 flex flex-wrap gap-2">
-                      {Object.entries(detail.counts).map(([type, n]) => (
-                        <span
-                          key={type}
-                          className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-700"
-                        >
-                          {typeLabel[type] ?? type}: <strong>{n}</strong>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <h3 className="mb-2 text-sm font-semibold text-gray-900">Timeline</h3>
-                  {detail.alerts.length === 0 ? (
-                    <p className="text-sm text-gray-500">No suspicious activity recorded.</p>
-                  ) : (
-                    <div className="flex max-h-96 flex-col gap-1.5 overflow-y-auto">
-                      {detail.alerts.map((a, i) => (
-                        <div
-                          key={i}
-                          className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm ${getAlertSeverityColor(
-                            a.severity
-                          )}`}
-                        >
-                          <span className="shrink-0 text-xs tabular-nums opacity-70">
-                            {new Date(a.timestamp).toLocaleTimeString("en-IN")}
-                          </span>
-                          <span className="shrink-0 font-medium">{typeLabel[a.alert_type] ?? a.alert_type}</span>
-                          <span className="opacity-80">{a.description}</span>
-                          <span className="ml-auto text-xs uppercase opacity-70">{a.severity}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
+                  <div className="lg:border-l lg:border-gray-200 lg:pl-8">
+                    <IntegrityDecisionPanel key={detail.session_id} detail={detail} onChanged={onDecided} />
+                  </div>
+                </div>
               )}
             </div>
           )}

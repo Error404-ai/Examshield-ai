@@ -6,6 +6,7 @@
 
 import api from "./api";
 import { AlertSeverity } from "../types";
+import type { IntegrityInfo, IntegrityStatus } from "./integrityService";
 
 export type ProctorEventType =
   | "tab_switch"
@@ -14,7 +15,8 @@ export type ProctorEventType =
   | "multiple_faces"
   | "looking_away"
   | "eyes_closed"
-  | "camera_blocked";
+  | "camera_blocked"
+  | "phone_detected";
 
 export interface ProctorEventPayload {
   alert_type: ProctorEventType;
@@ -40,6 +42,8 @@ export interface SessionSummary {
   counts: Record<string, number>;
   suspicion_score: number;
   recommendation: Recommendation;
+  /** null while the student is still taking the exam */
+  integrity_status: IntegrityStatus | null;
 }
 
 export interface ProctorAlertRow {
@@ -58,6 +62,8 @@ export interface SessionAlertsDetail {
   counts: Record<string, number>;
   suspicion_score: number;
   recommendation: Recommendation;
+  integrity_status: IntegrityStatus | null;
+  integrity: IntegrityInfo;
   alerts: ProctorAlertRow[];
 }
 

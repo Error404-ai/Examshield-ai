@@ -64,26 +64,26 @@ async def close_db():
 
 
 async def create_indexes():
-    """Create database indexes for optimization"""
+    """
+    Create database indexes for optimization.
+    Field names match what the routes actually store (snake_case). The old
+    camelCase indexes (createdBy, examId, ...) pointed at fields that never
+    existed, so they never helped a query.
+    """
     try:
-        # User indexes
+        # Users
         await db.users.create_index("email", unique=True)
-        await db.users.create_index("createdAt")
 
-        # Exam indexes
-        await db.exams.create_index("createdBy")
-        await db.exams.create_index([("isPublished", 1), ("createdAt", -1)])
+        # Exams: admin lists and the student "published" list
+        await db.exams.create_index("created_by")
+        await db.exams.create_index([("is_published", 1), ("created_at", -1)])
 
-        # Question indexes
-        await db.questions.create_index("examId")
+        # Questions
+        await db.questions.create_index("exam_id")
 
-        # Session indexes
-        await db.sessions.create_index([("studentId", 1), ("examId", 1)])
-        await db.sessions.create_index("examId")
-
-        # Proctoring indexes
-        await db.proctoring_logs.create_index([("sessionId", 1), ("timestamp", -1)])
-        await db.alerts.create_index([("sessionId", 1), ("severity", 1)])
+        # Sessions: resume/lookup per student, and per-exam review + integrity queue
+        await db.sessions.create_index([("student_id", 1), ("exam_id", 1)])
+        await db.sessions.create_index([("exam_id", 1), ("status", 1)])
 
         logger.info("Database indexes created")
     except Exception as e:

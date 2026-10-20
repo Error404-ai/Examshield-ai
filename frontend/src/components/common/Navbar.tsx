@@ -22,6 +22,7 @@ export const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
   const adminLinks = [
     { label: "Dashboard", to: "/admin/dashboard" },
     { label: "Create Exam", to: "/admin/exams/new" },
+    { label: "Integrity", to: "/admin/integrity" },
   ];
 
   const studentLinks = [

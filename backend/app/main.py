@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Import routes
-from app.routes import auth, student, admin, proctoring
+from app.routes import auth, student, admin, proctoring, integrity
 from app.core.config import settings
 from app.core.database import connect_db, close_db
 
@@ -77,6 +77,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(student.router, prefix="/api/student", tags=["Student"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(proctoring.router, prefix="/api/proctoring", tags=["Proctoring"])
+app.include_router(integrity.router, prefix="/api/integrity", tags=["Integrity"])
 
 
 # Root endpoint

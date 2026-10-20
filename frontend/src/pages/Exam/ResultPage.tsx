@@ -1,6 +1,7 @@
 /**
  * Result Page - View exam results
  * Wide layout: sticky score summary on the left, full answer review on the right.
+ * If an examiner confirmed a proctoring flag, the notice (and appeal form) sits above the review.
  */
 
 import React, { useEffect, useState } from "react";
@@ -10,6 +11,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { studentService } from "../../services/examService";
 import { Button } from "../../components/common/Button";
 import { Badge, Alert } from "../../components/common/Badge";
+import { IntegrityNotice } from "../../components/exam/IntegrityNotice";
 import { formatDateTime, getScoreColor, getScoreGrade, getErrorMessage } from "../../utils";
 import { ExamResult } from "../../types";
 
@@ -163,9 +165,11 @@ export const ResultPage: React.FC = () => {
           </div>
         </Reveal>
 
-        {/* Answer review */}
+        {/* Integrity notice + answer review */}
         <Reveal delay={0.15}>
         <section>
+          <IntegrityNotice sessionId={result._id} />
+
           <h2 className="mb-2 border-b border-gray-200 pb-2 font-display text-xl font-semibold text-gray-900">
             Answer review
           </h2>

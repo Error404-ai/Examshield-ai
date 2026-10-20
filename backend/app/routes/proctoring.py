@@ -2,7 +2,7 @@
 ExamShield AI - Proctoring Routes
 Browser-side AI (MediaPipe) detects violations and reports short events here.
 Events are stored on the session document (sessions.proctoring_alerts).
-Admins review them per exam / per session.
+Admins review them per exam / per session; decisions live in routes/integrity.py.
 """
 
 import logging
@@ -17,6 +17,13 @@ from app.core.database import get_db
 from app.core.security import get_current_user, require_role
 from app.core.utils import oid
 from app.models.schemas import AlertSeverity, SessionStatus
+from app.services.integrity_logic import (
+    derive_status,
+    iso,
+    public_integrity,
+    recommendation,
+    suspicion,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,6 +33,7 @@ admin_only = require_role("admin")
 ONGOING = SessionStatus.ONGOING.value
 MAX_ALERTS_PER_SESSION = 500
 
+# phone_detected was sent by the browser but missing here, so those events got a 422
 EventType = Literal[
     "tab_switch",
     "fullscreen_exit",
@@ -34,10 +42,8 @@ EventType = Literal[
     "looking_away",
     "eyes_closed",
     "camera_blocked",
+    "phone_detected",
 ]
-
-# Weights used for the suspicion score shown to admins
-SEVERITY_WEIGHT = {"low": 1, "medium": 3, "high": 8, "critical": 15}
 
 
 class ProctoringEventIn(BaseModel):
@@ -47,23 +53,9 @@ class ProctoringEventIn(BaseModel):
     description: str = Field("", max_length=300)
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-
-def _iso(value):
-    """Naive-UTC datetime -> ISO string with Z (None if missing)"""
-    return value.isoformat() + "Z" if isinstance(value, datetime) else None
-
-
-def _suspicion(alerts: list) -> int:
-    return min(100, sum(SEVERITY_WEIGHT.get(a.get("severity"), 0) for a in alerts))
-
-
-def _recommendation(score: int) -> str:
-    if score < 20:
-        return "approve"
-    if score < 50:
-        return "review"
-    return "reject"
+def _integrity_status(session: dict):
+    """Decisions only make sense once the student has submitted"""
+    return None if session.get("status") == ONGOING else derive_status(session)
 
 
 # ─── Student: report an event ────────────────────────────────────────────────
@@ -123,7 +115,7 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
     rows = []
     for s in sessions:
         alerts = s.get("proctoring_alerts", [])
-        score = _suspicion(alerts)
+        score = suspicion(alerts)
         student = users.get(s["student_id"], {})
         rows.append({
             "session_id": str(s["_id"]),
@@ -135,12 +127,13 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
             "total_marks": s.get("total_marks"),
             "percentage": s.get("percentage"),
             "passed": s.get("passed"),
-            "started_at": _iso(s.get("started_at")),
-            "submitted_at": _iso(s.get("submitted_at")),
+            "started_at": iso(s.get("started_at")),
+            "submitted_at": iso(s.get("submitted_at")),
             "total_alerts": len(alerts),
             "counts": s.get("proctoring_counts", {}),
             "suspicion_score": score,
-            "recommendation": _recommendation(score),
+            "recommendation": recommendation(score),
+            "integrity_status": _integrity_status(s),
         })
 
     # Most suspicious first
@@ -153,7 +146,7 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
 
 @router.get("/sessions/{session_id}/alerts")
 async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(get_db)):
-    session = await db.sessions.find_one({"_id": oid(session_id)})
+    session = await db.sessions.find_one({"_id": oid(session_id)}, {"answers": 0})
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -166,7 +159,7 @@ async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(
 
     student = await db.users.find_one({"_id": oid(session["student_id"])}, {"name": 1, "email": 1})
     alerts = session.get("proctoring_alerts", [])
-    score = _suspicion(alerts)
+    score = suspicion(alerts)
 
     return {
         "success": True,
@@ -177,6 +170,8 @@ async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(
         "total_alerts": len(alerts),
         "counts": session.get("proctoring_counts", {}),
         "suspicion_score": score,
-        "recommendation": _recommendation(score),
+        "recommendation": recommendation(score),
+        "integrity_status": _integrity_status(session),
+        "integrity": public_integrity(session.get("integrity") or {}, admin=True),
         "alerts": alerts,
     }
