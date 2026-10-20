@@ -165,9 +165,20 @@ export const studentService = {
    * `consent` defaults to true only so the current ExamPage keeps working until
    * the pre-exam notice (next step) passes it explicitly from its "Begin" button.
    */
-  async startSession(examId: string, consent: boolean = true): Promise<StartSessionResponse> {
-    const { data } = await api.post(`/student/exams/${examId}/start`, { consent });
+    async startSession(examId: string): Promise<{
+    session_id: string;
+    duration_minutes: number;
+    started_at: string;
+    remaining_seconds: number;
+    resumed: boolean;
+    saved_answers: Record<string, string>;
+  }> {
+    const { data } = await api.post(`/student/exams/${examId}/start`);
     return data;
+  },
+
+  async saveAnswers(sessionId: string, answers: Record<string, string>): Promise<void> {
+    await api.put(`/student/sessions/${sessionId}/answers`, { answers });
   },
 
   /** Autosave the current answers (replaces the previous draft) */

@@ -1,34 +1,79 @@
 /**
  * Exam Page - student takes the exam
- * Loader (fetch + start/resume session) is split from the runner so the
- * timer only mounts once the real remaining time is known.
  *
- * Runner flow (matches the contract documented in useProctoring):
- *  1. Start screen. Clicking "Start exam" goes fullscreen (needs a click) and
- *     turns the camera on.
- *  2. Questions stay hidden until the camera works.
- *  3. If the student leaves fullscreen, a "Return to fullscreen" screen blocks
- *     the questions until they click it.
- *
- * Layout: sticky bar with the timer, a reading column for the question, and a
- * sidebar with the camera, question navigator and submit.
+ * Flow:
+ *   1. Loader fetches the exam and shows the pre-exam notice.
+ *   2. The "Start exam" click enters fullscreen (needs a user gesture) and starts
+ *      or resumes the session. The server returns the remaining time and any
+ *      answers saved earlier.
+ *   3. The runner turns on the webcam + browser proctoring, autosaves answers,
+ *      and submits automatically when the timer ends or the tab limit is hit.
+ *      A failed automatic submit is retried a few times, then waits for the
+ *      student (or for the connection to come back).
  */
 
-import { motion } from "framer-motion";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { studentService } from "../../services/examService";
 import { QuestionCard } from "../../components/exam/QuestionCard";
+import { PreExamNotice } from "../../components/exam/PreExamNotice";
+import { MAX_TAB_SWITCHES } from "../../services/policy";
 import { ProctoringOverlay } from "../../components/proctoring/ProctoringOverlay";
-import { Button } from "../../components/common/Button";
 import { useExamTimer } from "../../hooks/useExamTimer";
 import { useProctoring } from "../../hooks/useProctoring";
 import { Exam, Question, StudentAnswer } from "../../types";
 import { getErrorMessage } from "../../utils";
 
-// The exam is submitted automatically when the student leaves the tab this many
-// times. Keep this equal to the limit your backend enforces.
-const MAX_TAB_SWITCHES = 3;
+// ─── Constants & helpers ─────────────────────────────────────────────────────
+
+const SAVE_DEBOUNCE_MS = 1500;
+const MAX_AUTO_RETRIES = 5;
+const retryDelayMs = (attempt: number) => Math.min(30000, 2000 * 2 ** attempt); // 2s, 4s, 8s, 16s, 30s
+
+type SubmitReason = "manual" | "timer" | "tab_limit";
+type SubmitState = "idle" | "submitting" | "retrying" | "failed";
+
+const localKey = (sessionId: string) => `examshield:answers:${sessionId}`;
+
+const readLocalAnswers = (sessionId: string): Record<string, string> => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(localKey(sessionId)) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeLocalAnswers = (sessionId: string, answers: Record<string, string>) => {
+  try {
+    localStorage.setItem(localKey(sessionId), JSON.stringify(answers));
+  } catch {
+    /* storage full or blocked: the server copy still works */
+  }
+};
+
+const clearLocalAnswers = (sessionId: string) => {
+  try {
+    localStorage.removeItem(localKey(sessionId));
+  } catch {
+    /* ignore */
+  }
+};
+
+const canRequestFullscreen = () =>
+  typeof document !== "undefined" && !!document.documentElement.requestFullscreen;
+
+const Banner: React.FC<{ tone: "info" | "warn" | "error"; children: React.ReactNode }> = ({
+  tone,
+  children,
+}) => {
+  const styles = {
+    info: "bg-indigo-50 border-indigo-200 text-indigo-900",
+    warn: "bg-yellow-50 border-yellow-200 text-yellow-900",
+    error: "bg-red-50 border-red-200 text-red-800",
+  }[tone];
+  return <div className={`rounded-lg border px-4 py-3 text-sm mb-4 ${styles}`}>{children}</div>;
+};
 
 // ─── Runner ──────────────────────────────────────────────────────────────────
 
@@ -37,67 +82,142 @@ interface RunnerProps {
   questions: Question[];
   sessionId: string;
   remainingSeconds: number;
-  draftAnswers: StudentAnswer[];
+  resumed: boolean;
+  initialAnswers: Record<string, string>;
+  initialTabSwitches: number;
 }
 
-const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remainingSeconds, draftAnswers }) => {
+const ExamRunner: React.FC<RunnerProps> = ({
+  exam,
+  questions,
+  sessionId,
+  remainingSeconds,
+  resumed,
+  initialAnswers,
+  initialTabSwitches,
+}) => {
   const navigate = useNavigate();
   const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string>>(() =>
-    Object.fromEntries(draftAnswers.map((answer) => [answer.question_id, answer.selected_answer]))
-  );
-  const [started, setStarted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [answers, setAnswers] = useState<Record<string, string>>(() => ({
+    ...initialAnswers,
+    ...readLocalAnswers(sessionId), // this device's copy can be newer than the server's
+  }));
+  const [submitState, setSubmitState] = useState<SubmitState>("idle");
+  const [reason, setReason] = useState<SubmitReason | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState("");
-  const [saveError, setSaveError] = useState("");
+  const [showResumeNote, setShowResumeNote] = useState(resumed);
 
   const answersRef = useRef(answers);
   answersRef.current = answers;
-  const submittedRef = useRef(false);
-  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
-  // Persist complete answer snapshots in order so slow requests cannot overwrite
-  // a newer draft with an older one.
-  useEffect(() => {
-    if (!started) return;
-    const snapshot = Object.entries(answers).map(([question_id, selected_answer]) => ({
-      question_id,
-      selected_answer,
-    }));
-    const timeout = window.setTimeout(() => {
-      saveChainRef.current = saveChainRef.current
-        .catch(() => undefined)
-        .then(() => studentService.saveDraft(sessionId, snapshot))
-        .then(() => setSaveError(""))
-        .catch((err) => setSaveError(getErrorMessage(err)));
-    }, 700);
-    return () => window.clearTimeout(timeout);
-  }, [answers, started, sessionId]);
+  const doneRef = useRef(false);        // submit succeeded
+  const inFlightRef = useRef(false);    // a submit request is running
+  const forcedRef = useRef<SubmitReason | null>(null); // set once the timer or tab limit forces a submit
+  const attemptsRef = useRef(0);
+  const retryTimerRef = useRef<number | null>(null);
+  const restoredCount = useRef(Object.keys(answers).length).current;
 
-  const submit = useCallback(async () => {
-    if (submittedRef.current) return;
-    submittedRef.current = true;
-    setSubmitting(true);
-    try {
-      await saveChainRef.current.catch(() => undefined);
-      await studentService.submitExam({
-        session_id: sessionId,
-        answers: Object.entries(answersRef.current).map(([question_id, selected_answer]) => ({
-          question_id,
-          selected_answer,
-        })),
-      });
-      navigate(`/student/results/${sessionId}`, { replace: true });
-    } catch (err) {
-      submittedRef.current = false;
-      setError(getErrorMessage(err));
-    } finally {
-      setSubmitting(false);
+  // ── Submit (manual, timer, or tab limit) with a bounded retry ──────────────
+
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current !== null) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
     }
+  }, []);
+
+  const finish = useCallback(() => {
+    doneRef.current = true;
+    clearLocalAnswers(sessionId);
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    navigate(`/student/results/${sessionId}`, { replace: true });
   }, [sessionId, navigate]);
 
-  const { timeLeft, formattedTime } = useExamTimer(remainingSeconds, submit);
+  const submit = useCallback(
+    async (why: SubmitReason = "manual") => {
+      if (doneRef.current || inFlightRef.current) return;
+      inFlightRef.current = true;
+      clearRetryTimer();
+      if (why !== "manual") forcedRef.current = why;
+      setReason((prev) => (prev && prev !== "manual" ? prev : why));
+      setSubmitState(attemptsRef.current > 0 ? "retrying" : "submitting");
+      setError("");
 
+      try {
+        await studentService.submitExam({
+          session_id: sessionId,
+          answers: Object.entries(answersRef.current).map(([question_id, selected_answer]) => ({
+            question_id,
+            selected_answer,
+          })),
+        });
+        finish();
+      } catch (err) {
+        inFlightRef.current = false;
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        const message = getErrorMessage(err);
+
+        // The first request may have gone through while its reply was lost (offline, timeout)
+        if (status === 400 && /already submitted/i.test(message)) {
+          finish();
+          return;
+        }
+
+        // No response at all, or a server error: worth retrying. Anything else won't change.
+        const retryable = status === undefined || status >= 500;
+
+        if (retryable && forcedRef.current && attemptsRef.current < MAX_AUTO_RETRIES) {
+          const delay = retryDelayMs(attemptsRef.current);
+          attemptsRef.current += 1;
+          setAttempt(attemptsRef.current);
+          setSubmitState("retrying");
+          retryTimerRef.current = window.setTimeout(() => {
+            retryTimerRef.current = null;
+            submitRef.current(forcedRef.current ?? "manual");
+          }, delay);
+          return;
+        }
+
+        setSubmitState("failed");
+        setError(
+          retryable
+            ? "Could not reach the server. Your answers are saved on this device. Check your connection, then press Retry."
+            : message
+        );
+      }
+    },
+    [sessionId, finish, clearRetryTimer]
+  );
+
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+
+  const handleRetry = () => {
+    attemptsRef.current = 0;
+    setAttempt(0);
+    submit(forcedRef.current ?? "manual");
+  };
+
+  // When the connection comes back after a forced submit, try again right away
+  useEffect(() => {
+    const onOnline = () => {
+      if (!forcedRef.current || doneRef.current || inFlightRef.current) return;
+      clearRetryTimer();
+      attemptsRef.current = 0;
+      setAttempt(0);
+      submitRef.current(forcedRef.current);
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [clearRetryTimer]);
+
+  useEffect(() => clearRetryTimer, [clearRetryTimer]);
+
+  const { timeLeft, formattedTime } = useExamTimer(remainingSeconds, () => submit("timer"));
+
+  // The hook counts tab switches (starting from the count saved on the server, so a
+  // refresh can't reset it) and calls onTabLimit once when the limit is reached.
   const {
     videoRef,
     start,
@@ -111,33 +231,54 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
     fullscreenSupported,
     isFullscreen,
     enterFullscreen,
-  } = useProctoring(sessionId, { maxTabSwitches: MAX_TAB_SWITCHES, onTabLimit: submit });
+  } = useProctoring(sessionId, {
+    maxTabSwitches: MAX_TAB_SWITCHES,
+    initialTabSwitches,
+    onTabLimit: () => submit("tab_limit"),
+  });
 
-  // Must run inside a click handler: browsers only allow fullscreen from one
-  const handleStart = async () => {
-    await enterFullscreen();
-    setStarted(true);
-    void start();
+  // Turn the camera on as soon as the exam opens
+  useEffect(() => {
+    start();
+  }, [start]);
+
+  // ── Autosave: local copy at once, server copy after a short pause ──────────
+
+  const skipFirstSave = useRef(true);
+  useEffect(() => {
+    if (doneRef.current || forcedRef.current) return;
+    writeLocalAnswers(sessionId, answers);
+    if (skipFirstSave.current) {
+      skipFirstSave.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      studentService.saveAnswers(sessionId, answers).catch(() => {
+        /* offline: the local copy is kept and the next change tries again */
+      });
+    }, SAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [answers, sessionId]);
+
+  // ── Answers, navigation, unload warning ────────────────────────────────────
+
+  const handleAnswer = (a: StudentAnswer) => {
+    if (forcedRef.current) return; // exam is being submitted
+    setAnswers((prev) => ({ ...prev, [a.question_id]: a.selected_answer }));
   };
 
-  const handleAnswer = (a: StudentAnswer) =>
-    setAnswers((prev) => ({ ...prev, [a.question_id]: a.selected_answer }));
-
-  const answeredCount = Object.values(answers).filter((v) => v && v.trim()).length;
-
   const handleSubmitClick = () => {
-    const unanswered = questions.length - answeredCount;
+    const unanswered = questions.length - Object.values(answers).filter(Boolean).length;
     const msg =
       unanswered > 0
         ? `You have ${unanswered} unanswered question(s). Submit anyway?`
         : "Submit your exam now?";
-    if (window.confirm(msg)) submit();
+    if (window.confirm(msg)) submit("manual");
   };
 
-  // Warn before accidental refresh/close
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
-      if (!submittedRef.current) e.preventDefault();
+      if (!doneRef.current) e.preventDefault();
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
@@ -145,284 +286,289 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
 
   const q = questions[index];
   const isLast = index === questions.length - 1;
-  const canAnswer = started && cameraReady;
-  const needsFullscreen = started && fullscreenSupported && !isFullscreen && !submitting;
+  const locked = reason === "timer" || reason === "tab_limit";
+  const busy = submitState === "submitting" || submitState === "retrying";
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50">
-      {/* Title + timer */}
-      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
-        <div className="flex h-14 items-center justify-between gap-4 px-6 lg:px-10">
-          <h1 className="truncate font-display text-base font-semibold text-gray-900">{exam.title}</h1>
-          <div
-            role="timer"
-            aria-label="Time remaining"
-            className={`font-display text-xl font-semibold tabular-nums ${
-              timeLeft < 300 ? "text-red-600" : "text-gray-900"
-            }`}
-          >
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="px-6 py-4 flex items-center justify-between max-w-4xl mx-auto">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">{exam.title}</h1>
+            <p className="text-sm text-gray-500">
+              Question {index + 1} of {questions.length}
+            </p>
+          </div>
+          <div className={`text-2xl font-bold tabular-nums ${timeLeft < 300 ? "text-red-600" : "text-gray-900"}`}>
             {formattedTime}
           </div>
         </div>
-        <div className="h-0.5 bg-gray-100" aria-hidden>
-          <motion.div
-            className="h-full bg-indigo-600"
-            animate={{ width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%` }}
-            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          />
-        </div>
-      </header>
+      </div>
 
-      <div className="grid flex-1 lg:grid-cols-[minmax(0,1fr)_340px]">
-        {/* Question column: content on top, navigation pinned to the bottom */}
-        <main className="flex flex-col px-6 py-8 lg:px-14 lg:py-12">
-          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
-            {error && (
-              <div role="alert" className="mb-6 border-l-2 border-red-500 bg-red-50/70 px-4 py-3 text-sm text-red-800">
-                {error}
-              </div>
-            )}
-            {saveError && (
-              <div role="status" className="mb-6 border-l-2 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                Your latest answer changes could not be saved yet. Check your connection; the app will retry as you continue.
-              </div>
-            )}
+      {/* Webcam + alerts: always mounted so the video element exists when the camera starts */}
+      <div className="fixed bottom-4 right-4 z-20 w-64 rounded-xl bg-white border border-gray-200 shadow-lg p-2">
+        <ProctoringOverlay
+          videoRef={videoRef}
+          cameraReady={cameraReady}
+          cameraError={cameraError}
+          modelState={modelState}
+          phoneDetectorState={phoneDetectorState}
+          faceStatus={faceStatus}
+          alerts={alerts}
+          tabSwitchCount={tabSwitchCount}
+          maxTabSwitches={MAX_TAB_SWITCHES}
+        />
+      </div>
 
-            {!started ? (
-              <div className="my-auto border-t border-gray-300 pt-10">
-                <h2 className="font-display text-2xl font-semibold text-gray-900">Before you begin</h2>
-                <p className="mt-3 max-w-xl text-base leading-relaxed text-gray-600">
-                  This exam is proctored. When you start, it opens in fullscreen and your camera turns on. Video
-                  stays on your device and only short event records are sent. Leaving the tab or fullscreen is
-                  recorded, and the exam is submitted automatically after {MAX_TAB_SWITCHES} tab switches.
+      <div className="px-6 py-8 max-w-4xl mx-auto">
+        {/* Status banners */}
+        {locked ? (
+          <Banner tone={submitState === "failed" ? "error" : "warn"}>
+            <p className="font-semibold">
+              {reason === "timer" ? "Time is up" : `Tab-switch limit reached (${MAX_TAB_SWITCHES})`}
+            </p>
+            <p className="mt-0.5">
+              {submitState === "failed"
+                ? error
+                : submitState === "retrying"
+                ? `Could not reach the server. Retrying automatically (retry ${attempt} of ${MAX_AUTO_RETRIES})...`
+                : "Submitting your answers automatically..."}
+            </p>
+            {submitState === "failed" && (
+              <button
+                onClick={handleRetry}
+                className="mt-2 px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700"
+              >
+                Retry
+              </button>
+            )}
+          </Banner>
+        ) : submitState === "failed" ? (
+          <Banner tone="error">
+            <p>{error}</p>
+            <button
+              onClick={handleRetry}
+              className="mt-2 px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700"
+            >
+              Retry
+            </button>
+          </Banner>
+        ) : null}
+
+        {showResumeNote && !locked && (
+          <Banner tone="info">
+            <div className="flex items-start justify-between gap-3">
+              <p>
+                Welcome back. Your timer kept running while you were away
+                {restoredCount > 0 ? ` and ${restoredCount} saved answer(s) were restored.` : "."}
+              </p>
+              <button onClick={() => setShowResumeNote(false)} className="shrink-0 text-indigo-700 hover:underline">
+                Dismiss
+              </button>
+            </div>
+          </Banner>
+        )}
+
+        {fullscreenSupported && !isFullscreen && !locked && (
+          <Banner tone="warn">
+            <div className="flex items-center justify-between gap-3">
+              <p>This exam is meant to run in fullscreen.</p>
+              <button
+                onClick={() => void enterFullscreen()}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-yellow-600 text-white text-sm hover:bg-yellow-700"
+              >
+                Return to fullscreen
+              </button>
+            </div>
+          </Banner>
+        )}
+
+        {!cameraReady ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+            {cameraError ? (
+              <>
+                <h2 className="text-lg font-semibold text-gray-900 mb-2">Camera access is required</h2>
+                <p className="text-sm text-gray-600 mb-5">
+                  {cameraError} Your timer is already running.
                 </p>
-                <dl className="mt-6 grid max-w-xl grid-cols-3 gap-4 border-t border-gray-200 pt-6 text-sm">
-                  <div>
-                    <dt className="text-gray-500">Questions</dt>
-                    <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-gray-900">
-                      {questions.length}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500">Time left</dt>
-                    <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-gray-900">
-                      {formattedTime}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500">Total marks</dt>
-                    <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-gray-900">
-                      {exam.total_marks}
-                    </dd>
-                  </div>
-                </dl>
-                <p className="mt-6 text-sm text-gray-600">Your timer has already started.</p>
-                <Button className="mt-4" size="lg" onClick={handleStart}>
-                  Start exam
-                </Button>
-              </div>
-            ) : !cameraReady ? (
-              <div className="my-auto border-t border-gray-300 pt-10">
-                {cameraError ? (
-                  <>
-                    <h2 className="font-display text-2xl font-semibold text-gray-900">Camera access is required</h2>
-                    <p className="mt-2 max-w-md text-base leading-relaxed text-gray-600">
-                      {cameraError} You can find the camera icon in your browser&rsquo;s address bar.
-                    </p>
-                    <Button className="mt-5" onClick={handleStart}>
-                      Try again
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <div className="mb-3 h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
-                    <p className="text-base text-gray-700">Setting up your camera.</p>
-                    <p className="mt-1 text-sm text-gray-500">
-                      Click &ldquo;Allow&rdquo; when your browser asks for camera access.
-                    </p>
-                  </>
-                )}
-              </div>
+                <button
+                  onClick={() => start()}
+                  className="px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                >
+                  Try again
+                </button>
+              </>
             ) : (
               <>
-                <div className="flex-1">
-                  <motion.div
-                    key={q._id}
-                    initial={{ opacity: 0, x: 16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-                  >
-                    <QuestionCard question={q} index={index} answer={answers[q._id] || ""} onAnswer={handleAnswer} />
-                  </motion.div>
-                </div>
-
-                <div className="mt-10 flex items-center justify-between border-t border-gray-200 pt-6">
-                  <Button
-                    variant="secondary"
-                    size="lg"
-                    onClick={() => setIndex((i) => Math.max(0, i - 1))}
-                    disabled={index === 0}
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-sm tabular-nums text-gray-500">
-                    {index + 1} of {questions.length}
-                  </span>
-                  <Button size="lg" onClick={() => setIndex((i) => i + 1)} disabled={isLast}>
-                    Next
-                  </Button>
-                </div>
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent mx-auto mb-3" />
+                <p className="text-sm text-gray-600">Setting up your camera and proctoring...</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Click "Allow" when your browser asks for camera access. Video stays on your device.
+                </p>
               </>
             )}
           </div>
-        </main>
+        ) : (
+          <div className={locked ? "pointer-events-none opacity-60" : ""} aria-disabled={locked}>
+            <QuestionCard question={q} index={index} answer={answers[q._id] || ""} onAnswer={handleAnswer} />
 
-        {/* Sidebar: full-height panel, submit pinned to the bottom */}
-        <aside className="flex flex-col gap-8 border-t border-gray-200 bg-white px-6 py-8 lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-y-auto lg:border-l lg:border-t-0">
-          <ProctoringOverlay
-            videoRef={videoRef}
-            cameraReady={cameraReady}
-            cameraError={cameraError}
-            modelState={modelState}
-            phoneDetectorState={phoneDetectorState}
-            faceStatus={faceStatus}
-            alerts={alerts}
-            tabSwitchCount={tabSwitchCount}
-            maxTabSwitches={MAX_TAB_SWITCHES}
-          />
+            <div className="flex items-center justify-between mt-8 gap-4">
+              <button
+                onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                disabled={index === 0}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg disabled:opacity-50"
+              >
+                Previous
+              </button>
 
-          <div>
-            <div className="mb-3 flex items-baseline justify-between">
-              <h2 className="font-display text-sm font-semibold text-gray-900">Questions</h2>
-              <span className="text-xs tabular-nums text-gray-500">
-                {answeredCount} of {questions.length} answered
-              </span>
-            </div>
-            <div className="grid grid-cols-6 gap-1.5">
-              {questions.map((qq, i) => {
-                const answered = !!(answers[qq._id] && answers[qq._id].trim());
-                const current = i === index;
-                return (
+              <div className="flex flex-wrap justify-center gap-1">
+                {questions.map((qq, i) => (
                   <button
                     key={qq._id}
-                    type="button"
                     onClick={() => setIndex(i)}
-                    disabled={!canAnswer}
-                    aria-label={`Question ${i + 1}${answered ? ", answered" : ""}`}
-                    aria-current={current ? "true" : undefined}
-                    className={`h-10 rounded-md border text-sm tabular-nums transition-colors disabled:opacity-50 ${
-                      current
-                        ? "border-indigo-600 bg-indigo-600 text-white"
-                        : answered
-                        ? "border-indigo-200 bg-indigo-50 text-indigo-800 hover:border-indigo-300"
-                        : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                    className={`px-3 py-1 rounded text-sm ${
+                      i === index
+                        ? "bg-indigo-600 text-white"
+                        : answers[qq._id]
+                        ? "bg-green-100 text-green-700"
+                        : "bg-gray-200 text-gray-700"
                     }`}
                   >
                     {i + 1}
                   </button>
-                );
-              })}
+                ))}
+              </div>
+
+              {isLast ? (
+                <button
+                  onClick={handleSubmitClick}
+                  disabled={busy}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {busy ? "Submitting..." : "Submit Exam"}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIndex((i) => i + 1)}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                >
+                  Next
+                </button>
+              )}
             </div>
           </div>
-
-          <Button onClick={handleSubmitClick} loading={submitting} disabled={!started} className="mt-auto w-full" size="lg">
-            Submit exam
-          </Button>
-        </aside>
+        )}
       </div>
-
-      {/* Blocks the exam until the student returns to fullscreen */}
-      {needsFullscreen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="fs-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-50/95 px-6"
-        >
-          <div className="max-w-md rounded-lg border border-gray-200 bg-white p-8 text-center">
-            <h2 id="fs-title" className="font-display text-xl font-semibold text-gray-900">
-              Return to fullscreen
-            </h2>
-            <p className="mt-2 text-sm leading-relaxed text-gray-600">
-              The exam must stay in fullscreen. Leaving it has been recorded. Your timer is still running.
-            </p>
-            <Button className="mt-6" size="lg" onClick={() => void enterFullscreen()}>
-              Return to fullscreen
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
 
+interface StartedSession {
+  sessionId: string;
+  remaining: number;
+  resumed: boolean;
+  savedAnswers: Record<string, string>;
+  tabSwitches: number;
+}
+
 export const ExamPage: React.FC = () => {
   const { examId } = useParams<{ examId: string }>();
   const navigate = useNavigate();
 
-  const [data, setData] = useState<{
-    exam: Exam;
-    questions: Question[];
-    sessionId: string;
-    remaining: number;
-    draftAnswers: StudentAnswer[];
-  } | null>(null);
-  const [error, setError] = useState("");
-  const startedRef = useRef(false); // guards React StrictMode's double effect
+  const [content, setContent] = useState<{ exam: Exam; questions: Question[] } | null>(null);
+  const [session, setSession] = useState<StartedSession | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [startError, setStartError] = useState("");
+  const [starting, setStarting] = useState(false);
+  const loadedRef = useRef(false); // guards React StrictMode's double effect
 
+  // Load the exam only. The session (and its timer) starts after the student accepts the notice.
   useEffect(() => {
-    if (!examId || startedRef.current) return;
-    startedRef.current = true;
-
-    (async () => {
-      try {
-        const { exam, questions } = await studentService.getExam(examId);
-        const session = await studentService.startSession(examId);
-
-        setData({
-          exam,
-          questions,
-          sessionId: session.session_id,
-          remaining: session.remaining_seconds,
-          draftAnswers: session.draft_answers ?? [],
-        });
-      } catch (err) {
-        setError(getErrorMessage(err));
-      }
-    })();
+    if (!examId || loadedRef.current) return;
+    loadedRef.current = true;
+    studentService
+      .getExam(examId)
+      .then(setContent)
+      .catch((err) => setLoadError(getErrorMessage(err)));
   }, [examId]);
 
-  if (error) {
+  const handleAccept = async () => {
+    if (!examId || starting) return;
+    setStarting(true);
+    setStartError("");
+
+    // Must run directly inside the click handler: browsers only allow fullscreen after a user gesture
+    if (canRequestFullscreen()) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+
+    try {
+      const s = await studentService.startSession(examId);
+      setSession({
+        sessionId: s.session_id,
+        remaining: s.remaining_seconds, // server clock, so a wrong device clock can't change the timer
+        resumed: s.resumed,
+        savedAnswers: s.saved_answers ?? {},
+        tabSwitches:
+          (s as typeof s & { tab_switch_count?: number }).tab_switch_count ?? 0,
+      });
+    } catch (err) {
+      setStartError(getErrorMessage(err));
+      setStarting(false);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    }
+  };
+
+  if (loadError) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-6">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="mb-4 text-red-700">{error}</p>
-          <Button onClick={() => navigate("/student/dashboard")}>Back to dashboard</Button>
+          <p className="text-red-700 mb-4">{loadError}</p>
+          <button
+            onClick={() => navigate("/student/dashboard")}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            Back to Dashboard
+          </button>
         </div>
       </div>
     );
   }
 
-  if (!data) {
+  if (!content) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
-          <p className="text-sm text-gray-500">Preparing your exam</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+          <p className="text-sm text-gray-500">Loading exam...</p>
         </div>
       </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <PreExamNotice
+        exam={content.exam}
+        starting={starting}
+        error={startError}
+        onAccept={handleAccept}
+        onCancel={() => navigate("/student/dashboard")}
+      />
     );
   }
 
   return (
     <ExamRunner
-      exam={data.exam}
-      questions={data.questions}
-      sessionId={data.sessionId}
-      remainingSeconds={data.remaining}
-      draftAnswers={data.draftAnswers}
+      exam={content.exam}
+      questions={content.questions}
+      sessionId={session.sessionId}
+      remainingSeconds={session.remaining}
+      resumed={session.resumed}
+      initialAnswers={session.savedAnswers}
+      initialTabSwitches={session.tabSwitches}
     />
   );
 };

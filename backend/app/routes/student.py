@@ -17,6 +17,9 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pymongo import ReturnDocument
 
+from typing import Dict
+from bson import ObjectId
+from pydantic import BaseModel, Field
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.utils import appeal_out, clean, oid
@@ -35,9 +38,12 @@ ONGOING = SessionStatus.ONGOING.value
 DONE = [SessionStatus.SUBMITTED.value, SessionStatus.EXPIRED.value]
 LATE_GRACE_SECONDS = 60
 
-MAX_DRAFT_ANSWERS = 500
-MAX_ANSWER_CHARS = 5000
 
+MAX_DRAFT_ANSWERS = 500
+MAX_ANSWER_CHARS = 20000
+
+class DraftAnswers(BaseModel):
+      answers: Dict[str, str] = Field(default_factory=dict)
 # Fields that never go to the student
 _PRIVATE_FIELDS = (
     "draft_answers",
