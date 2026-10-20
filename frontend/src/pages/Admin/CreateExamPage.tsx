@@ -258,9 +258,9 @@ export const CreateExamPage: React.FC = () => {
   const totalMarks = questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
 
   return (
-    <div className="mx-auto max-w-7xl px-6 pb-0 pt-10">
+    <div className="mx-auto max-w-[1500px] px-6 pb-0 pt-8 lg:px-12">
       <PageHeader
-        className="mb-12"
+        className="mb-9"
         eyebrow={isEdit ? "Edit exam" : "New exam"}
         title={isEdit ? "Edit exam" : "Create an exam"}
         subtitle={
@@ -543,8 +543,8 @@ export const CreateExamPage: React.FC = () => {
       </section>
 
       {/* Sticky action bar */}
-      <div className="sticky bottom-0 -mx-6 mt-16 border-t border-gray-200 bg-white/85 px-6 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+      <div className="sticky bottom-0 -mx-6 mt-16 border-t border-gray-200 bg-white/85 px-6 py-4 backdrop-blur lg:-mx-12 lg:px-12">
+        <div className="flex items-center justify-between gap-4">
           <label className="flex items-center gap-2 text-sm text-gray-800">
             <input
               type="checkbox"

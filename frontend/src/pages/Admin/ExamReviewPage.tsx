@@ -147,7 +147,7 @@ export const ExamReviewPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-10">
+    <div className="mx-auto max-w-[1500px] px-6 lg:px-12 py-10">
       <button
         type="button"
         onClick={() => navigate("/admin/dashboard")}

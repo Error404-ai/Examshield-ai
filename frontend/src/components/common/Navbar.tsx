@@ -38,7 +38,7 @@ export const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
 
   return (
     <nav className="sticky top-0 z-30 border-b border-gray-200 bg-white/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
+      <div className="mx-auto flex h-14 max-w-[1500px] items-center justify-between px-6 lg:px-12">
         <div className="flex items-center gap-10">
           <Link to="/" className="font-display text-lg font-semibold tracking-tight text-gray-900">
             ExamShield

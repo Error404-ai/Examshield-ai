@@ -68,7 +68,7 @@ export const AdminDashboard: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto min-h-[calc(100vh-3.5rem)] max-w-7xl px-6 py-10">
+    <div className="mx-auto min-h-[calc(100vh-3.5rem)] max-w-[1500px] px-6 lg:px-12 py-10">
       <PageHeader
         eyebrow="Admin dashboard"
         title="Your exams, at a glance"
