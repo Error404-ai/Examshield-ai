@@ -51,7 +51,7 @@ export const Button: React.FC<ButtonProps> = ({
     {...props}
     disabled={disabled || loading}
     className={clsx(
-      "inline-flex items-center justify-center rounded-lg font-medium transition-colors",
+      "inline-flex items-center justify-center rounded-lg font-medium transition-all active:translate-y-px",
       "disabled:cursor-not-allowed disabled:opacity-50",
       variantClasses[variant],
       sizeClasses[size],

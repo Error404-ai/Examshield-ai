@@ -5,6 +5,7 @@
  */
 
 import React from "react";
+import { motion } from "framer-motion";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { User, UserRole } from "../../types";
 
@@ -36,7 +37,7 @@ export const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
   };
 
   return (
-    <nav className="border-b border-gray-200 bg-white">
+    <nav className="sticky top-0 z-30 border-b border-gray-200 bg-white/80 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
         <div className="flex items-center gap-10">
           <Link to="/" className="font-display text-lg font-semibold tracking-tight text-gray-900">
@@ -52,13 +53,18 @@ export const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
                     key={link.to}
                     to={link.to}
                     aria-current={active ? "page" : undefined}
-                    className={`flex items-center border-b-2 text-sm font-medium transition-colors ${
-                      active
-                        ? "border-indigo-600 text-gray-900"
-                        : "border-transparent text-gray-500 hover:text-gray-900"
+                    className={`relative flex items-center text-sm font-medium transition-colors ${
+                      active ? "text-gray-900" : "text-gray-500 hover:text-gray-900"
                     }`}
                   >
                     {link.label}
+                    {active && (
+                      <motion.span
+                        layoutId="nav-underline"
+                        className="absolute inset-x-0 -bottom-px h-0.5 bg-indigo-600"
+                        transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                      />
+                    )}
                   </Link>
                 );
               })}

@@ -4,6 +4,7 @@
  * Sessions auto-refresh so an exam can be watched live.
  */
 
+import { PageHeader } from "../../components/common/PageHeader";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -154,8 +155,12 @@ export const ExamReviewPage: React.FC = () => {
       >
         ← Back to dashboard
       </button>
-      <h1 className="font-display text-3xl font-semibold text-gray-900">{examTitle || "Exam"}</h1>
-      <p className="mb-6 mt-1 text-gray-500">Results, AI proctoring review and exam analytics.</p>
+      <PageHeader
+        className="mb-8"
+        eyebrow="Exam review"
+        title={examTitle || "Exam"}
+        subtitle="Results, AI proctoring review and exam analytics."
+      />
 
       {error && (
         <div className="mb-6">

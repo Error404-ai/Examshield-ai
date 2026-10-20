@@ -14,6 +14,7 @@
  * sidebar with the camera, question navigator and submit.
  */
 
+import { motion } from "framer-motion";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { studentService } from "../../services/examService";
@@ -139,6 +140,13 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
             {formattedTime}
           </div>
         </div>
+        <div className="h-0.5 bg-gray-100" aria-hidden>
+          <motion.div
+            className="h-full bg-indigo-600"
+            animate={{ width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%` }}
+            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          />
+        </div>
       </header>
 
       <div className="grid flex-1 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -209,7 +217,14 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
             ) : (
               <>
                 <div className="flex-1">
-                  <QuestionCard question={q} index={index} answer={answers[q._id] || ""} onAnswer={handleAnswer} />
+                  <motion.div
+                    key={q._id}
+                    initial={{ opacity: 0, x: 16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <QuestionCard question={q} index={index} answer={answers[q._id] || ""} onAnswer={handleAnswer} />
+                  </motion.div>
                 </div>
 
                 <div className="mt-10 flex items-center justify-between border-t border-gray-200 pt-6">

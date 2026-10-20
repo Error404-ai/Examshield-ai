@@ -4,12 +4,45 @@
  */
 
 import React, { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { CountUp, Reveal } from "../../components/common/Motion";
 import { useParams, useNavigate } from "react-router-dom";
 import { studentService } from "../../services/examService";
 import { Button } from "../../components/common/Button";
 import { Badge, Alert } from "../../components/common/Badge";
 import { formatDateTime, getScoreColor, getScoreGrade, getErrorMessage } from "../../utils";
 import { ExamResult } from "../../types";
+
+const ScoreRing: React.FC<{ pct: number; passed: boolean }> = ({ pct, passed }) => {
+  const r = 44;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(100, pct));
+  return (
+    <div className="relative h-32 w-32 shrink-0">
+      <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90" aria-hidden>
+        <circle cx="50" cy="50" r={r} fill="none" strokeWidth="7" className="stroke-gray-200" />
+        <motion.circle
+          cx="50"
+          cy="50"
+          r={r}
+          fill="none"
+          strokeWidth="7"
+          strokeLinecap="round"
+          className={passed ? "stroke-green-600" : "stroke-red-500"}
+          strokeDasharray={c}
+          initial={{ strokeDashoffset: c }}
+          animate={{ strokeDashoffset: c * (1 - clamped / 100) }}
+          transition={{ duration: 1.1, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="font-display text-3xl font-medium tabular-nums text-gray-900">
+          <CountUp value={`${Math.round(clamped)}%`} duration={1.1} />
+        </span>
+      </div>
+    </div>
+  );
+};
 
 export const ResultPage: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -71,24 +104,27 @@ export const ResultPage: React.FC = () => {
 
       <div className="grid gap-10 lg:grid-cols-[340px_minmax(0,1fr)]">
         {/* Score summary */}
-        <aside className="lg:sticky lg:top-20 lg:self-start">
+        <Reveal className="lg:sticky lg:top-20 lg:self-start">
           <div className="rounded-lg border border-gray-200 bg-white p-6">
-            <h1 className="font-display text-2xl font-semibold text-gray-900">
+            <h1 className="font-display text-2xl font-medium text-gray-900">
               {result.exam_title || "Exam result"}
             </h1>
             <p className="mt-1 text-sm text-gray-500">{formatDateTime(result.submitted_at || result.started_at)}</p>
 
-            <p className="mt-6 font-display tabular-nums">
-              <span className={`text-6xl font-semibold ${getScoreColor(result.percentage)}`}>{result.score}</span>
-              <span className="ml-2 text-2xl text-gray-400">/ {result.total_marks}</span>
-            </p>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <span className="text-lg tabular-nums text-gray-700">{result.percentage.toFixed(1)}%</span>
-              <span className={`font-display text-2xl font-semibold ${getScoreColor(result.percentage)}`}>
-                {getScoreGrade(result.percentage)}
-              </span>
-              <Badge variant={result.passed ? "success" : "error"}>{result.passed ? "Passed" : "Failed"}</Badge>
+            <div className="mt-6 flex items-center gap-5">
+              <ScoreRing pct={result.percentage} passed={result.passed} />
+              <div>
+                <p className="font-display tabular-nums">
+                  <span className={`text-5xl font-medium ${getScoreColor(result.percentage)}`}>{result.score}</span>
+                  <span className="ml-1.5 text-xl text-gray-400">/ {result.total_marks}</span>
+                </p>
+                <div className="mt-2 flex items-center gap-2.5">
+                  <span className={`font-display text-xl font-semibold ${getScoreColor(result.percentage)}`}>
+                    {getScoreGrade(result.percentage)}
+                  </span>
+                  <Badge variant={result.passed ? "success" : "error"}>{result.passed ? "Passed" : "Failed"}</Badge>
+                </div>
+              </div>
             </div>
 
             {answers.length > 0 && (
@@ -125,9 +161,10 @@ export const ResultPage: React.FC = () => {
               )}
             </div>
           </div>
-        </aside>
+        </Reveal>
 
         {/* Answer review */}
+        <Reveal delay={0.15}>
         <section>
           <h2 className="mb-2 border-b border-gray-200 pb-2 font-display text-xl font-semibold text-gray-900">
             Answer review
@@ -187,6 +224,7 @@ export const ResultPage: React.FC = () => {
             </ol>
           )}
         </section>
+        </Reveal>
       </div>
     </div>
   );

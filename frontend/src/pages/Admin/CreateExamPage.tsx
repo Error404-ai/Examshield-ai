@@ -5,6 +5,7 @@
  *   /admin/exams/:examId/edit   -> edit
  */
 
+import { PageHeader } from "../../components/common/PageHeader";
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { adminService, Difficulty } from "../../services/examService";
@@ -247,12 +248,16 @@ export const CreateExamPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-10">
-      <h1 className="font-display text-3xl font-semibold text-gray-900">{isEdit ? "Edit Exam" : "Create Exam"}</h1>
-      <p className="mb-6 mt-1 text-gray-500">
-        {isEdit
-          ? "Update details, edit or remove questions, or add new ones"
-          : "Set up the exam details and add multiple-choice questions"}
-      </p>
+      <PageHeader
+        className="mb-8"
+        eyebrow={isEdit ? "Edit exam" : "New exam"}
+        title={isEdit ? "Edit exam" : "Create an exam"}
+        subtitle={
+          isEdit
+            ? "Update details, edit or remove questions, or add new ones."
+            : "Set up the details, then write questions or let the AI draft them."
+        }
+      />
 
       {error && (
         <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">

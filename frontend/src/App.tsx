@@ -4,6 +4,7 @@
  */
 
 import React from "react";
+import { MotionConfig } from "framer-motion";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { Navbar } from "./components/common/Navbar";
@@ -30,7 +31,13 @@ const App: React.FC = () => {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen flex flex-col">
+      <MotionConfig reducedMotion="user">
+      <div className="relative isolate flex min-h-screen flex-col">
+        {/* Soft teal glow + faint grid behind the top of every app page */}
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[460px]">
+          <div className="absolute inset-0 bg-[radial-gradient(60rem_22rem_at_50%_-6rem,rgba(14,116,144,0.13),transparent_70%)]" />
+          <div className="bg-grid-light absolute inset-0 [-webkit-mask-image:linear-gradient(to_bottom,black,transparent_85%)] [mask-image:linear-gradient(to_bottom,black,transparent_85%)]" />
+        </div>
         {/* Navbar everywhere except the exam, the auth pages and the logged-out landing page */}
         <Routes>
           <Route path="/student/exam/*" element={null} />
@@ -131,6 +138,7 @@ const App: React.FC = () => {
           </Routes>
         </main>
       </div>
+      </MotionConfig>
     </BrowserRouter>
   );
 };

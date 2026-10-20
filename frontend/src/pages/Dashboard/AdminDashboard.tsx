@@ -8,6 +8,8 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { adminService } from "../../services/examService";
 import { ExamCard } from "../../components/exam/ExamCard";
+import { PageHeader } from "../../components/common/PageHeader";
+import { Reveal } from "../../components/common/Motion";
 import { StatStrip } from "../../components/common/Statstrip";
 import { Button } from "../../components/common/Button";
 import { Alert, Badge } from "../../components/common/Badge";
@@ -67,13 +69,16 @@ export const AdminDashboard: React.FC = () => {
 
   return (
     <div className="mx-auto min-h-[calc(100vh-3.5rem)] max-w-7xl px-6 py-10">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-3xl font-semibold text-gray-900">Admin dashboard</h1>
-          <p className="mt-1 text-gray-500">Manage exams and review student activity.</p>
-        </div>
-        <Button onClick={() => navigate("/admin/exams/new")}>Create exam</Button>
-      </div>
+      <PageHeader
+        eyebrow="Admin dashboard"
+        title="Your exams, at a glance"
+        subtitle="Manage exams and review student activity."
+        actions={
+          <Button size="lg" onClick={() => navigate("/admin/exams/new")}>
+            Create exam
+          </Button>
+        }
+      />
 
       {stats && (
         <div className="mt-8">
@@ -96,7 +101,7 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <Reveal delay={0.2} className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section>
           <h2 className="mb-4 border-b border-gray-200 pb-2 font-display text-xl font-semibold text-gray-900">
             All exams
@@ -109,9 +114,10 @@ export const AdminDashboard: React.FC = () => {
             </div>
           ) : (
             <ul className="divide-y divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white">
-              {exams.map((exam) => (
+              {exams.map((exam, i) => (
                 <ExamCard
                   key={exam._id}
+                  index={i}
                   exam={exam}
                   role={UserRole.ADMIN}
                   onEdit={(id) => navigate(`/admin/exams/${id}/edit`)}
@@ -161,7 +167,7 @@ export const AdminDashboard: React.FC = () => {
             )}
           </section>
         </aside>
-      </div>
+      </Reveal>
     </div>
   );
 };

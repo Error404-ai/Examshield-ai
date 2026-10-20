@@ -36,3 +36,11 @@
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* Faint teal grid, the light-theme cousin of the landing page's hero grid */
+.bg-grid-light {
+  background-image:
+    linear-gradient(rgba(14,116,144,0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14,116,144,0.07) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
