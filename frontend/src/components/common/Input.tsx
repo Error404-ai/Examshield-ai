@@ -20,6 +20,7 @@ export const Input: React.FC<InputProps> = ({
   ...props
 }) => {
   const inputId = id || label?.toLowerCase().replace(/\s+/g, "-");
+  const messageId = inputId ? `${inputId}-message` : undefined;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -34,7 +35,8 @@ export const Input: React.FC<InputProps> = ({
         )}
         <input
           id={inputId}
-          aria-invalid={!!error}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error || hint ? messageId : undefined}
           className={clsx(
             "w-full rounded-lg border bg-white py-2.5 text-sm text-gray-900 placeholder:text-gray-400",
             "transition-colors focus:outline-none focus:ring-2",
@@ -53,9 +55,9 @@ export const Input: React.FC<InputProps> = ({
         )}
       </div>
       {error ? (
-        <p className="text-xs text-red-600">{error}</p>
+        <p id={messageId} className="text-xs text-red-700">{error}</p>
       ) : hint ? (
-        <p className="text-xs text-gray-500">{hint}</p>
+        <p id={messageId} className="text-xs text-gray-600">{hint}</p>
       ) : null}
     </div>
   );

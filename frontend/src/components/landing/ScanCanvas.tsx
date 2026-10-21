@@ -83,7 +83,8 @@ export const ScanCanvas: React.FC<{ className?: string }> = ({ className }) => {
     if (!canvas || !ctx) return;
 
     const { pts, edges } = buildFace();
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let still = motionPreference.matches;
 
     let w = 0;
     let h = 0;
@@ -103,7 +104,7 @@ export const ScanCanvas: React.FC<{ className?: string }> = ({ className }) => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
 
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       const r = canvas.getBoundingClientRect();
       mx = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (window.innerWidth * 0.4)));
       my = Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height / 2)) / (window.innerHeight * 0.4)));
@@ -188,19 +189,28 @@ export const ScanCanvas: React.FC<{ className?: string }> = ({ className }) => {
       if (!still) raf = requestAnimationFrame(draw);
     };
 
+    const onMotionPreferenceChange = (event: MediaQueryListEvent) => {
+      still = event.matches;
+      cancelAnimationFrame(raf);
+      if (still) draw(0);
+      else raf = requestAnimationFrame(draw);
+    };
+
     resize();
     const ro = new ResizeObserver(() => {
       resize();
       if (still) draw(0);
     });
     ro.observe(canvas);
-    window.addEventListener("mousemove", onMove);
+    window.addEventListener("pointermove", onMove, { passive: true });
+    motionPreference.addEventListener("change", onMotionPreferenceChange);
     raf = requestAnimationFrame(draw);
 
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("pointermove", onMove);
+      motionPreference.removeEventListener("change", onMotionPreferenceChange);
     };
   }, []);
 

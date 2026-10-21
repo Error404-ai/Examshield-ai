@@ -80,6 +80,9 @@ async def create_indexes():
         await db.sessions.create_index([("student_id", 1), ("exam_id", 1), ("status", 1)])
         await db.sessions.create_index("exam_id")
 
+        # Distributed rate-limit counters are removed after their fixed window ends.
+        await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
+
         logger.info("Database indexes created")
     except Exception as e:
         logger.error(f"Index creation error: {str(e)}")

@@ -17,6 +17,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user, require_role
 from app.core.utils import oid
 from app.models.schemas import AlertSeverity, SessionStatus
+from app.services.integrity_logic import derive_status, public_integrity
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -185,6 +186,7 @@ async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(
     student = await db.users.find_one({"_id": oid(session["student_id"])}, {"name": 1, "email": 1})
     alerts = session.get("proctoring_alerts", [])
     score = _suspicion(alerts)
+    integrity = session.get("integrity") or {}
 
     return {
         "success": True,
@@ -198,4 +200,6 @@ async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(
         "suspicion_score": score,
         "recommendation": _recommendation(score),
         "alerts": alerts,
+        "integrity_status": None if session.get("status") == ONGOING else derive_status(session),
+        "integrity": public_integrity(integrity, admin=True),
     }

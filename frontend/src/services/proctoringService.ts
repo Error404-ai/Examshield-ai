@@ -6,6 +6,7 @@
 
 import api from "./api";
 import { AlertSeverity } from "../types";
+import type { IntegrityInfo, IntegrityStatus } from "./integrityService";
 
 export type ProctorEventType =
   | "tab_switch"
@@ -62,6 +63,8 @@ export interface SessionAlertsDetail {
   suspicion_score: number;
   recommendation: Recommendation;
   alerts: ProctorAlertRow[];
+  integrity_status: IntegrityStatus | null;
+  integrity: IntegrityInfo;
 }
 
 export const proctoringService = {

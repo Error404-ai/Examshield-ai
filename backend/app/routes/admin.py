@@ -5,7 +5,6 @@ Data model: exams / questions / sessions as separate collections.
 """
 
 import logging
-import time
 from datetime import datetime, timedelta
 from typing import Annotated, Dict, List, Literal, Optional
 
@@ -15,6 +14,7 @@ from pymongo.errors import OperationFailure
 
 from app.core import database
 from app.core.database import get_db
+from app.core.distributed_rate_limit import check_distributed_rate_limit
 from app.core.security import require_role
 from app.core.utils import oid, clean
 from app.models.schemas import ExamUpdate, QuestionCreate, QuestionType, SessionStatus
@@ -25,9 +25,8 @@ router = APIRouter()
 
 admin_only = require_role("admin")
 
-# Simple in-memory limit on AI generations per admin
+# Shared MongoDB counter limits AI generations across backend instances.
 GEN_LIMIT_PER_HOUR = 20
-_gen_calls: Dict[str, List[float]] = {}
 
 
 class ExamIn(BaseModel):
@@ -111,18 +110,6 @@ async def _transact(work):
             logger.warning("MongoDB transactions unavailable (standalone server); saving without one")
             return await work(None)
         raise
-
-
-def _check_gen_rate(admin_id: str) -> None:
-    now = time.time()
-    recent = [t for t in _gen_calls.get(admin_id, []) if now - t < 3600]
-    if len(recent) >= GEN_LIMIT_PER_HOUR:
-        raise HTTPException(
-            status_code=429,
-            detail="You've reached the hourly limit for AI generation. Try again later.",
-        )
-    recent.append(now)
-    _gen_calls[admin_id] = recent
 
 
 async def _owned_exam(db, exam_id: str, admin_id: str) -> dict:
@@ -323,9 +310,14 @@ async def publish_exam(exam_id: str, admin=Depends(admin_only), db=Depends(get_d
 # ─── Questions ───────────────────────────────────────────────────────────────
 
 @router.post("/questions/generate")
-async def generate_ai_questions(body: GenerateIn, admin=Depends(admin_only)):
+async def generate_ai_questions(body: GenerateIn, admin=Depends(admin_only), db=Depends(get_db)):
     """Draft multiple-choice questions with AI. Nothing is saved; the admin reviews first."""
-    _check_gen_rate(admin["user_id"])
+    await check_distributed_rate_limit(
+        db,
+        f"ai-generation:{admin['user_id']}",
+        GEN_LIMIT_PER_HOUR,
+        3600,
+    )
     try:
         questions = await generate_questions(
             topic=body.topic.strip(),

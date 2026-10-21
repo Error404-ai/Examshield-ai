@@ -27,12 +27,9 @@ export const RegisterPage: React.FC = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError("");
-    if (!form.name || !form.email || !form.password || !form.confirm_password) {
-      setError("Please fill in all fields");
-      return;
-    }
     if (form.password !== form.confirm_password) {
       setError("Passwords do not match");
       return;
@@ -56,28 +53,30 @@ export const RegisterPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
+    <div className="flex min-h-dvh items-center justify-center px-4 py-6 sm:py-8">
+      <div className="my-auto w-full max-w-md">
+        <div className="mb-6 text-center sm:mb-7">
           <Link
             to="/"
             className="font-display text-xl font-semibold tracking-tight text-gray-900"
           >
             ExamShield
           </Link>
-          <h1 className="mt-6 font-display text-3xl font-semibold text-gray-900">Create your account</h1>
+          <h1 className="mt-4 font-display text-3xl font-semibold text-gray-900">Create your account</h1>
           <p className="mt-1 text-sm text-gray-500">Join ExamShield AI as a student.</p>
         </div>
 
         {isLoading ? null : user ? (
           <AlreadySignedIn user={user} onSignOut={logout} />
         ) : (
-          <div className="flex flex-col gap-5 rounded-lg border border-gray-200 bg-white p-8 shadow-md">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 rounded-lg border border-gray-200 bg-white p-6 shadow-md sm:gap-4 sm:p-8">
             {error && <Alert variant="error">{error}</Alert>}
 
             <Input
               label="Full name"
               placeholder="John Doe"
+              autoComplete="name"
+              required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
@@ -86,6 +85,8 @@ export const RegisterPage: React.FC = () => {
               label="Email"
               type="email"
               placeholder="you@example.com"
+              autoComplete="email"
+              required
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
@@ -93,7 +94,10 @@ export const RegisterPage: React.FC = () => {
             <Input
               label="Password"
               type="password"
-              placeholder="Min. 6 characters"
+              placeholder="At least 6 characters"
+              autoComplete="new-password"
+              minLength={6}
+              required
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
             />
@@ -101,23 +105,25 @@ export const RegisterPage: React.FC = () => {
             <Input
               label="Confirm password"
               type="password"
-              placeholder="Repeat password"
+              placeholder="Re-enter your password"
+              autoComplete="new-password"
+              minLength={6}
+              required
               value={form.confirm_password}
               onChange={(e) => setForm({ ...form, confirm_password: e.target.value })}
-              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             />
 
-            <Button onClick={handleSubmit} loading={loading} size="lg" className="mt-1 w-full">
+            <Button type="submit" loading={loading} size="lg" className="mt-1 w-full">
               Create account
             </Button>
 
-            <p className="text-center text-sm text-gray-500">
+            <p className="text-center text-sm text-gray-600">
               Already have an account?{" "}
-              <Link to="/login" className="font-medium text-indigo-700 hover:text-indigo-900">
+              <Link to="/login" className="font-medium text-indigo-700 underline-offset-4 hover:underline">
                 Sign in
               </Link>
             </p>
-          </div>
+          </form>
         )}
       </div>
     </div>

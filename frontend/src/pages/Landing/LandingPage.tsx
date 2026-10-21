@@ -6,7 +6,7 @@
 
 import React, { useEffect } from "react";
 import { Link } from "react-router-dom";
-import { motion, MotionConfig } from "framer-motion";
+import { motion, MotionConfig, useReducedMotion } from "framer-motion";
 import Lenis from "lenis";
 import { ScanCanvas } from "../../components/landing/ScanCanvas";
 
@@ -50,13 +50,14 @@ const STEPS = [
   },
 ];
 
-const fade = (delay: number) => ({
-  initial: { opacity: 0, y: 14 },
+const fade = (delay: number, reduceMotion: boolean) => ({
+  initial: { opacity: reduceMotion ? 1 : 0, y: reduceMotion ? 0 : 14 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.7, delay, ease: [0.22, 1, 0.36, 1] as const },
+  transition: { duration: reduceMotion ? 0 : 0.7, delay: reduceMotion ? 0 : delay, ease: [0.22, 1, 0.36, 1] as const },
 });
 
 export const LandingPage: React.FC = () => {
+  const reduceMotion = useReducedMotion() ?? false;
   // Smooth scrolling, skipped when the user prefers reduced motion
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -98,16 +99,16 @@ export const LandingPage: React.FC = () => {
         <section className="mx-auto grid min-h-[100svh] max-w-[1500px] items-center gap-10 px-6 lg:px-12 pb-16 pt-28 lg:grid-cols-2">
           <div>
             <motion.h1
-              {...fade(0)}
+              {...fade(0, reduceMotion)}
               className="font-display text-4xl font-medium leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-6xl xl:text-7xl"
             >
               Proctored exams without uploading a single frame of video.
             </motion.h1>
-            <motion.p {...fade(0.15)} className="mt-6 max-w-md text-lg leading-relaxed text-slate-400">
+            <motion.p {...fade(0.15, reduceMotion)} className="mt-6 max-w-md text-lg leading-relaxed text-slate-300">
               ExamShield checks the camera inside the student&rsquo;s browser and sends the examiner only short event
-              records. Move your cursor over the face to see what it watches for.
+              records. Move your cursor or touch the face to see what it watches for.
             </motion.p>
-            <motion.div {...fade(0.3)} className="mt-9 flex flex-wrap gap-3">
+            <motion.div {...fade(0.3, reduceMotion)} className="mt-9 flex flex-wrap gap-3">
               <Link to="/register" className={`${cta} bg-cyan-400 text-navy-950 hover:bg-white`}>
                 Create an account
               </Link>
@@ -117,7 +118,7 @@ export const LandingPage: React.FC = () => {
             </motion.div>
           </div>
 
-          <motion.div {...fade(0.2)} className="h-[420px] w-full sm:h-[520px] lg:h-[calc(100svh-9rem)]">
+          <motion.div {...fade(0.2, reduceMotion)} className="h-[min(420px,100vw)] w-full sm:h-[520px] lg:h-[calc(100svh-9rem)]">
             <ScanCanvas className="h-full w-full" />
           </motion.div>
         </section>
@@ -128,7 +129,7 @@ export const LandingPage: React.FC = () => {
             <h2 className="max-w-xl font-display text-3xl font-medium tracking-tight text-white sm:text-4xl">
               Eight things get flagged, each with a fixed weight
             </h2>
-            <p className="mt-4 max-w-xl text-slate-400">
+            <p className="mt-4 max-w-xl text-slate-300">
               Each flag adds its points to the session&rsquo;s suspicion score, capped at 100. Repeats of the same flag
               are rate-limited, so one long glance doesn&rsquo;t count fifty times. Below 20 is approve, 20 to 49 is
               review, 50 and above is reject.
@@ -136,7 +137,7 @@ export const LandingPage: React.FC = () => {
 
             <div className="mt-12 overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="text-slate-500">
+                <thead className="text-slate-300">
                   <tr className="border-b border-white/10">
                     <th className="py-3 pr-6 font-medium">Signal</th>
                     <th className="py-3 pr-6 font-medium">Triggered when</th>

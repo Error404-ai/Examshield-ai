@@ -22,12 +22,9 @@ export const LoginPage: React.FC = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError("");
-    if (!form.email || !form.password) {
-      setError("Please fill in all fields");
-      return;
-    }
     setLoading(true);
     try {
       const loggedInUser = await login(form);
@@ -43,54 +40,56 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
+    <div className="flex min-h-dvh items-center justify-center px-4 py-6 sm:py-8">
+      <div className="my-auto w-full max-w-md">
+        <div className="mb-6 text-center sm:mb-7">
           <Link
             to="/"
             className="font-display text-xl font-semibold tracking-tight text-gray-900"
           >
             ExamShield
           </Link>
-          <h1 className="mt-6 font-display text-3xl font-semibold text-gray-900">Welcome back</h1>
+          <h1 className="mt-4 font-display text-3xl font-semibold text-gray-900">Welcome back</h1>
           <p className="mt-1 text-sm text-gray-500">Sign in to continue to your exams.</p>
         </div>
 
         {isLoading ? null : user ? (
           <AlreadySignedIn user={user} onSignOut={logout} />
         ) : (
-          <div className="flex flex-col gap-5 rounded-lg border border-gray-200 bg-white p-8 shadow-md">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-6 shadow-md sm:gap-5 sm:p-8">
             {error && <Alert variant="error">{error}</Alert>}
 
             <Input
               label="Email"
               type="email"
               placeholder="you@example.com"
+              autoComplete="email"
+              required
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
-              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             />
 
             <Input
               label="Password"
               type="password"
-              placeholder="••••••••"
+              placeholder="Enter your password"
+              autoComplete="current-password"
+              required
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             />
 
-            <Button onClick={handleSubmit} loading={loading} size="lg" className="mt-1 w-full">
+            <Button type="submit" loading={loading} size="lg" className="mt-1 w-full">
               Sign in
             </Button>
 
-            <p className="text-center text-sm text-gray-500">
+            <p className="text-center text-sm text-gray-600">
               Don&rsquo;t have an account?{" "}
-              <Link to="/register" className="font-medium text-indigo-700 hover:text-indigo-900">
+              <Link to="/register" className="font-medium text-indigo-700 underline-offset-4 hover:underline">
                 Register
               </Link>
             </p>
-          </div>
+          </form>
         )}
       </div>
     </div>
