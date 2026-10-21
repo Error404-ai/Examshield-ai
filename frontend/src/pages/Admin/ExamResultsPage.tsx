@@ -8,11 +8,22 @@ import { useParams, useNavigate } from "react-router-dom";
 import { adminService } from "../../services/examService";
 import { Badge } from "../../components/common/Badge";
 import { Button } from "../../components/common/Button";
+import { PageHeader } from "../../components/common/PageHeader";
+import { Reveal } from "../../components/common/Motion";
+import { StatStrip } from "../../components/common/Statstrip";
+import { timeAgo } from "../../components/common/dashboardKit";
 import { ALERT_TYPE_LABEL } from "../../services/integrityService";
 import { ExamAlert, proctoringService } from "../../services/proctoringService";
 import { formatDateTime, getErrorMessage } from "../../utils";
 
 type ResultsData = Awaited<ReturnType<typeof adminService.getExamResults>>;
+
+const severityColor: Record<string, string> = {
+  low: "bg-sky-500",
+  medium: "bg-amber-500",
+  high: "bg-orange-500",
+  critical: "bg-rose-500",
+};
 
 export const ExamResultsPage: React.FC = () => {
   const { examId } = useParams<{ examId: string }>();
@@ -55,131 +66,156 @@ export const ExamResultsPage: React.FC = () => {
     );
   }
 
-  const stat = (label: string, value: string | number) => (
-    <div className="bg-white rounded-lg border border-gray-200 p-5">
-      <p className="text-sm text-gray-600">{label}</p>
-      <p className="text-2xl font-bold text-indigo-600 mt-1">{value}</p>
-    </div>
-  );
-
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">{data.exam_title}: Results</h1>
-        <Button variant="secondary" onClick={() => navigate("/admin/dashboard")}>
-          Back
-        </Button>
-      </div>
+    <div className="mx-auto max-w-[1500px] px-6 py-10 lg:px-12">
+      <PageHeader
+        className="mb-8"
+        eyebrow="Exam results"
+        title={data.exam_title}
+        subtitle="Student performance and proctoring activity for this exam."
+        actions={
+          <Button variant="secondary" onClick={() => navigate("/admin/dashboard")}>
+            Back to dashboard
+          </Button>
+        }
+      />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {stat("Attempts", data.total_attempts)}
-        {stat("Passed", data.passed)}
-        {stat("Failed", data.failed)}
-        {stat("Average", `${data.average_score}%`)}
-      </div>
+      <StatStrip
+        items={[
+          { label: "Attempts", value: data.total_attempts },
+          { label: "Passed", value: data.passed },
+          { label: "Failed", value: data.failed },
+          { label: "Average score", value: `${data.average_score}%` },
+        ]}
+      />
 
-      <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-left text-gray-600">
-            <tr>
-              <th className="px-4 py-3">Student</th>
-              <th className="px-4 py-3">Score</th>
-              <th className="px-4 py-3">Result</th>
-              <th className="px-4 py-3">Submitted</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {data.results.map((r) => (
-              <tr
-                key={r._id}
-                onClick={() => navigate(`/admin/sessions/${r._id}/review`)}
-                className="cursor-pointer hover:bg-gray-50"
-                title="Review this attempt"
-              >
-                <td className="px-4 py-3">
-                  <p className="font-medium text-gray-900">{r.student_name}</p>
-                  <p className="text-xs text-gray-500">{r.student_email}</p>
-                </td>
-                <td className="px-4 py-3 text-gray-700">
-                  {r.score}/{r.total_marks} ({r.percentage.toFixed(1)}%)
-                </td>
-                <td className="px-4 py-3">
-                  <Badge variant={r.passed ? "success" : "error"}>
-                    {r.passed ? "Passed" : "Failed"}
-                  </Badge>
-                </td>
-                <td className="px-4 py-3 text-gray-500">
-                  {r.submitted_at ? formatDateTime(r.submitted_at) : "-"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {data.results.length === 0 && (
-          <p className="p-6 text-center text-gray-500">No submissions yet</p>
-        )}
-      </div>
+      <div className="mt-10 grid items-start gap-10 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.75fr)]">
+        <Reveal>
+          <section aria-labelledby="attempts-heading">
+            <div className="mb-4 flex items-end justify-between border-b border-gray-200 pb-3">
+              <div>
+                <h2 id="attempts-heading" className="font-display text-xl font-semibold text-gray-900">
+                  Student attempts
+                </h2>
+                <p className="mt-1 text-sm text-gray-600">Select an attempt to review answers and exam activity.</p>
+              </div>
+              <span className="text-sm tabular-nums text-gray-500">{data.results.length} total</span>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-left text-gray-600">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Student</th>
+                      <th className="px-4 py-3 font-medium">Score</th>
+                      <th className="px-4 py-3 font-medium">Result</th>
+                      <th className="px-4 py-3 font-medium">Submitted</th>
+                      <th className="px-4 py-3"><span className="sr-only">Review</span></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {data.results.map((result) => (
+                      <tr key={result._id} className="transition-colors hover:bg-gray-50">
+                        <td className="px-4 py-4">
+                          <p className="font-medium text-gray-900">{result.student_name}</p>
+                          <p className="mt-0.5 text-xs text-gray-500">{result.student_email}</p>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-4 text-gray-700">
+                          {result.score}/{result.total_marks} ({result.percentage.toFixed(1)}%)
+                        </td>
+                        <td className="px-4 py-4">
+                          <Badge variant={result.passed ? "success" : "error"}>
+                            {result.passed ? "Passed" : "Failed"}
+                          </Badge>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-4 text-gray-500">
+                          {result.submitted_at ? formatDateTime(result.submitted_at) : "-"}
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/admin/sessions/${result._id}/review`)}
+                            className="text-sm font-semibold text-indigo-700 underline-offset-4 hover:underline focus-visible:underline"
+                          >
+                            Review
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {data.results.length === 0 && (
+                <div className="px-6 py-12 text-center">
+                  <p className="font-medium text-gray-900">No submissions yet</p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Results and proctoring activity will appear here when students finish this exam.
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+        </Reveal>
 
-      <section className="mt-8 rounded-lg border border-gray-200 bg-white">
-        <div className="border-b border-gray-200 px-5 py-4">
-          <h2 className="font-display text-lg font-semibold text-gray-900">Recent exam alerts</h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Latest proctoring events recorded across attempts for this exam.
-          </p>
-        </div>
-        {alertsError ? (
-          <p role="alert" className="px-5 py-6 text-sm text-red-700">{alertsError}</p>
-        ) : alertsLoading ? (
-          <div className="flex justify-center py-8" aria-label="Loading exam alerts">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
-          </div>
-        ) : alerts.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-gray-600">
-            No proctoring alerts have been recorded for this exam yet.
-          </p>
-        ) : (
-          <ul className="divide-y divide-gray-100">
-            {alerts.map((alert, index) => {
-              const severityColor: Record<string, string> = {
-                low: "bg-sky-500",
-                medium: "bg-amber-500",
-                high: "bg-orange-500",
-                critical: "bg-rose-500",
-              };
-              return (
-                <li key={`${alert.session_id}-${alert.timestamp}-${index}`}>
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/admin/sessions/${alert.session_id}/review`)}
-                    className="flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-gray-50 focus-visible:bg-gray-50"
-                    title={`Review ${alert.student_name}'s attempt`}
-                  >
-                    <span
-                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${severityColor[alert.severity] ?? "bg-gray-400"}`}
-                      aria-hidden="true"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-medium text-gray-900">
-                        {alert.description || ALERT_TYPE_LABEL[alert.alert_type] || alert.alert_type}
+        <Reveal delay={0.12}>
+          <section aria-labelledby="alerts-heading">
+            <div className="mb-4 flex items-end justify-between border-b border-gray-200 pb-3">
+              <div>
+                <h2 id="alerts-heading" className="font-display text-xl font-semibold text-gray-900">
+                  Recent proctoring alerts
+                </h2>
+                <p className="mt-1 text-sm text-gray-600">Latest events across this exam’s attempts.</p>
+              </div>
+              {alerts.length > 0 && (
+                <span className="text-sm tabular-nums text-gray-500">{alerts.length} latest</span>
+              )}
+            </div>
+            {alertsError ? (
+              <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-5 py-6 text-sm text-red-700">
+                {alertsError}
+              </p>
+            ) : alertsLoading ? (
+              <div className="flex justify-center rounded-lg border border-gray-200 bg-white py-8" aria-label="Loading exam alerts">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+              </div>
+            ) : alerts.length === 0 ? (
+              <p className="rounded-lg border border-gray-200 bg-white px-5 py-6 text-sm text-gray-600">
+                No alerts recorded for this exam yet.
+              </p>
+            ) : (
+              <ul className="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                {alerts.map((alert, index) => (
+                  <li key={`${alert.session_id}-${alert.timestamp}-${index}`}>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/admin/sessions/${alert.session_id}/review`)}
+                      className="flex w-full items-start gap-3 px-4 py-4 text-left transition-colors hover:bg-gray-50 focus-visible:bg-gray-50"
+                      title={`Review ${alert.student_name}'s attempt`}
+                    >
+                      <span
+                        className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${severityColor[alert.severity] ?? "bg-gray-400"}`}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium text-gray-900">
+                          {ALERT_TYPE_LABEL[alert.alert_type] || alert.alert_type}
+                        </span>
+                        {alert.description && (
+                          <span className="mt-1 block text-sm text-gray-600">{alert.description}</span>
+                        )}
+                        <span className="mt-1.5 block text-xs text-gray-500">
+                          <span className="capitalize">{alert.severity}</span> · {alert.student_name} · {timeAgo(alert.timestamp)}
+                        </span>
                       </span>
-                      <span className="mt-1 flex flex-wrap gap-x-2 text-xs text-gray-600">
-                        <span>{ALERT_TYPE_LABEL[alert.alert_type] || alert.alert_type}</span>
-                        <span aria-hidden="true">·</span>
-                        <span className="capitalize">{alert.severity}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{alert.student_name}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{formatDateTime(alert.timestamp)}</span>
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-sm font-medium text-indigo-700">Review</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                      <span className="shrink-0 text-xs font-semibold text-indigo-700">View attempt</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </Reveal>
+      </div>
     </div>
   );
 };

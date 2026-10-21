@@ -10,6 +10,10 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { gradingService, ReviewAnswer, ReviewSession } from "../../services/gradingService";
 import { Badge } from "../../components/common/Badge";
+import { Button } from "../../components/common/Button";
+import { PageHeader } from "../../components/common/PageHeader";
+import { StatStrip } from "../../components/common/Statstrip";
+import { ALERT_TYPE_LABEL } from "../../services/integrityService";
 import { formatDateTime, getErrorMessage } from "../../utils";
 
 const isWritten = (a: ReviewAnswer) =>
@@ -116,14 +120,9 @@ export const ReviewAttemptPage: React.FC = () => {
 
   if (!data) {
     return error ? (
-      <div className="min-h-[50vh] flex flex-col items-center justify-center gap-4">
-        <p className="text-red-700">{error}</p>
-        <button
-          onClick={() => navigate(-1)}
-          className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-700"
-        >
-          Back
-        </button>
+        <div className="min-h-[50vh] flex flex-col items-center justify-center gap-4">
+          <p role="alert" className="text-red-700">{error}</p>
+          <Button variant="secondary" onClick={() => navigate(-1)}>Back</Button>
       </div>
     ) : (
       <div className="min-h-[50vh] flex items-center justify-center">
@@ -139,57 +138,41 @@ export const ReviewAttemptPage: React.FC = () => {
   const finalScore = !data.grading_status || data.grading_status === "done";
 
   return (
-    <div className="px-6 py-8 max-w-4xl mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">{data.exam_title}</h1>
-          <p className="text-gray-600 mt-1">
-            {data.student_name} <span className="text-gray-400">({data.student_email})</span>
-          </p>
-          {data.submitted_at && (
-            <p className="text-xs text-gray-500 mt-0.5">Submitted {formatDateTime(data.submitted_at)}</p>
-          )}
-        </div>
-        <button
-          onClick={() => navigate(-1)}
-          className="shrink-0 px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50"
-        >
-          Back
-        </button>
-      </div>
+    <div className="mx-auto max-w-[1500px] px-6 py-10 lg:px-12">
+      <PageHeader
+        className="mb-8"
+        eyebrow="Attempt review"
+        title={data.exam_title}
+        subtitle={
+          <>
+            {data.student_name} <span className="text-gray-500">({data.student_email})</span>
+            {data.submitted_at && <> · Submitted {formatDateTime(data.submitted_at)}</>}
+          </>
+        }
+        actions={
+          <Button variant="secondary" onClick={() => navigate(`/admin/exams/${data.exam_id}/results`)}>
+            Back to results
+          </Button>
+        }
+      />
 
-      <div className="bg-white rounded-lg border border-gray-200 p-5 mb-6 flex flex-wrap items-center gap-x-8 gap-y-3">
-        <div>
-          <p className="text-sm text-gray-600">Score</p>
-          <p className="text-2xl font-bold text-gray-900 tabular-nums">
-            {data.score} / {data.total_marks}{" "}
-            <span className="text-base font-normal text-gray-500">({data.percentage.toFixed(1)}%)</span>
-          </p>
-        </div>
-        <div>
-          <p className="text-sm text-gray-600">Result</p>
-          {finalScore ? (
-            <Badge variant={data.passed ? "success" : "error"}>{data.passed ? "Passed" : "Failed"}</Badge>
-          ) : (
-            <Badge variant="warning">Provisional</Badge>
-          )}
-        </div>
-        <div>
-          <p className="text-sm text-gray-600">Multiple choice</p>
-          <p className="text-sm font-medium text-gray-900">
-            {mcqCorrect} of {mcq.length} correct
-          </p>
-        </div>
-      </div>
+      <StatStrip
+        items={[
+          { label: "Score", value: `${data.score}/${data.total_marks}`, hint: `${data.percentage.toFixed(1)}%` },
+          { label: "Outcome", value: finalScore ? (data.passed ? "Passed" : "Failed") : "Pending" },
+          { label: "Multiple choice", value: `${mcqCorrect}/${mcq.length}`, hint: "correct answers" },
+          { label: "Proctoring alerts", value: data.proctoring_alerts?.length ?? 0 },
+        ]}
+      />
 
       {/* Grading status */}
       {data.grading_status === "pending" && (
-        <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3 text-sm text-indigo-900 mb-6">
+        <div role="status" className="mt-6 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
           The AI is grading the written answers. This page updates by itself.
         </div>
       )}
       {data.grading_status === "failed" && (
-        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-800 mb-6">
+        <div role="alert" className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <p>{data.grading_error || "AI grading did not finish."}</p>
           <p className="mt-0.5">You can run it again, or set the marks by hand below.</p>
           <button
@@ -201,27 +184,104 @@ export const ReviewAttemptPage: React.FC = () => {
         </div>
       )}
       {data.grading_status === "done" && flagged > 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 text-sm text-yellow-900 mb-6">
+        <div className="mt-6 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-900">
           {flagged} answer(s) were flagged because the AI was not confident. Please check them.
         </div>
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 mb-4">{error}</div>
+        <div role="alert" className="mt-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>
       )}
       {notice && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800 mb-4">
+        <div role="status" className="mt-6 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
           {notice}
         </div>
       )}
 
-      {written.length === 0 ? (
-        <div className="bg-gray-50 rounded-lg border border-gray-200 p-8 text-center text-gray-500">
-          This exam has no written answers. Multiple-choice answers are marked automatically.
+      <section className="mt-10">
+        <h2 className="mb-4 font-display text-2xl font-semibold text-gray-900">Multiple-choice answers</h2>
+        {mcq.length === 0 ? (
+          <p className="rounded-lg border border-gray-200 bg-white p-5 text-sm text-gray-600">
+            This attempt has no multiple-choice answers.
+          </p>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {mcq.map((answer, index) => (
+              <article key={answer.question_id} className="rounded-lg border border-gray-200 bg-white p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="font-medium leading-relaxed text-gray-900">
+                    {index + 1}. {answer.question_text}
+                  </h3>
+                  <Badge variant={answer.is_correct ? "success" : "error"}>
+                    {answer.is_correct ? "Correct" : "Incorrect"}
+                  </Badge>
+                </div>
+                <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                  <div className="rounded-md bg-gray-50 p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Student answer</p>
+                    <p className="mt-1 break-words text-gray-900">{answer.selected_answer || "No answer"}</p>
+                  </div>
+                  <div className="rounded-md bg-gray-50 p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Correct answer</p>
+                    <p className="mt-1 break-words text-gray-900">{answer.correct_answer}</p>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-10">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="font-display text-2xl font-semibold text-gray-900">Proctoring timeline</h2>
+            <p className="mt-1 text-sm text-gray-600">
+              Events recorded during this attempt. Alerts are review signals, not proof of misconduct.
+            </p>
+          </div>
+          <span className="text-sm text-gray-500">{data.proctoring_alerts?.length ?? 0} events</span>
         </div>
+        {!data.proctoring_alerts?.length ? (
+          <p className="rounded-lg border border-gray-200 bg-white p-5 text-sm text-gray-600">
+            No proctoring events were recorded for this attempt.
+          </p>
+        ) : (
+          <ol className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white">
+            {data.proctoring_alerts.map((alert, index) => (
+              <li key={`${alert.timestamp}-${index}`} className="flex items-start gap-3 px-5 py-4">
+                <span
+                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                    alert.severity === "critical" ? "bg-rose-500" :
+                    alert.severity === "high" ? "bg-orange-500" :
+                    alert.severity === "medium" ? "bg-amber-500" : "bg-sky-500"
+                  }`}
+                  aria-hidden="true"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-gray-900">
+                    {alert.description || ALERT_TYPE_LABEL[alert.alert_type] || alert.alert_type}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-600">
+                    {ALERT_TYPE_LABEL[alert.alert_type] || alert.alert_type} · {alert.severity} · {formatDateTime(alert.timestamp)}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      {written.length === 0 ? (
+        <section className="mt-10">
+          <h2 className="mb-4 font-display text-2xl font-semibold text-gray-900">Written answers</h2>
+          <p className="rounded-lg border border-gray-200 bg-white p-5 text-sm text-gray-600">
+            This attempt has no written answers.
+          </p>
+        </section>
       ) : (
-        <div className="flex flex-col gap-5">
-          <h2 className="text-xl font-bold text-gray-900">Written answers ({written.length})</h2>
+        <section className="mt-10 flex flex-col gap-5">
+          <h2 className="font-display text-2xl font-semibold text-gray-900">Written answers ({written.length})</h2>
 
           {written.map((a, i) => {
             const d = drafts[a.question_id] ?? { marks: String(a.marks_awarded), note: "", dirty: false };
@@ -319,7 +379,7 @@ export const ReviewAttemptPage: React.FC = () => {
               </div>
             );
           })}
-        </div>
+        </section>
       )}
     </div>
   );

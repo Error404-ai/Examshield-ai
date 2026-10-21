@@ -14,6 +14,7 @@ export interface ReviewAnswer {
   question_text: string;
   selected_answer: string;
   correct_answer: string; // the model answer for written questions
+  options?: string[];
   rubric?: string;
   marks: number;
   marks_awarded: number;
@@ -40,7 +41,14 @@ export interface ReviewSession {
   grading_error?: string;
   review_needed?: boolean;
   submitted_at?: string;
+  started_at?: string;
   answers: ReviewAnswer[];
+  proctoring_alerts: {
+    alert_type: string;
+    severity: "low" | "medium" | "high" | "critical";
+    description: string;
+    timestamp: string;
+  }[];
 }
 
 export interface GradeResult {
