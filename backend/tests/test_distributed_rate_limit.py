@@ -1,12 +1,92 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 import pytest
 from fastapi import HTTPException
+from pymongo.errors import DuplicateKeyError
 
+import app.core.database as database_module
 from app.core.distributed_rate_limit import check_distributed_rate_limit
 from app.routes.proctoring import exam_alerts, session_alerts
 from app.routes.admin import ManualGradeIn, grade_attempt_answer, review_attempt
+from app.routes.student import StartIn, start_exam
+
+
+@pytest.mark.asyncio
+async def test_ongoing_session_index_is_unique_only_for_ongoing_attempts(db, monkeypatch):
+    monkeypatch.setattr(database_module, "db", db)
+    await database_module.create_indexes()
+
+    student_id, exam_id = "student-1", "exam-1"
+    await db.sessions.insert_one(
+        {"student_id": student_id, "exam_id": exam_id, "status": "ongoing"}
+    )
+    with pytest.raises(DuplicateKeyError):
+        await db.sessions.insert_one(
+            {"student_id": student_id, "exam_id": exam_id, "status": "ongoing"}
+        )
+
+    await db.sessions.insert_one(
+        {"student_id": student_id, "exam_id": exam_id, "status": "submitted"}
+    )
+    indexes = await db.sessions.index_information()
+    assert indexes["uniq_ongoing_session_per_student_exam"]["unique"] is True
+    assert indexes["uniq_ongoing_session_per_student_exam"]["partialFilterExpression"] == {
+        "status": "ongoing"
+    }
+
+
+@pytest.mark.asyncio
+async def test_index_creation_fails_if_duplicate_ongoing_sessions_exist(db, monkeypatch):
+    monkeypatch.setattr(database_module, "db", db)
+    await db.sessions.insert_many([
+        {"student_id": "student-1", "exam_id": "exam-1", "status": "ongoing"},
+        {"student_id": "student-1", "exam_id": "exam-1", "status": "ongoing"},
+    ])
+
+    with pytest.raises(RuntimeError, match="Duplicate ongoing exam sessions"):
+        await database_module.create_indexes()
+
+
+@pytest.mark.asyncio
+async def test_start_exam_reuses_session_after_concurrent_duplicate_key(db):
+    student_id, exam_id, session_id = (ObjectId() for _ in range(3))
+    now = datetime.utcnow()
+    await db.exams.insert_one({
+        "_id": exam_id,
+        "is_published": True,
+        "duration": 60,
+    })
+    await db.questions.insert_one({"exam_id": str(exam_id)})
+    await db.sessions.insert_one({
+        "_id": session_id,
+        "student_id": str(student_id),
+        "exam_id": str(exam_id),
+        "status": "ongoing",
+        "started_at": now,
+        "expires_at": now + timedelta(minutes=60),
+    })
+
+    class RacingSessions:
+        def __getattr__(self, name):
+            return getattr(db.sessions, name)
+
+        async def find_one_and_update(self, *args, **kwargs):
+            raise DuplicateKeyError("another request created the ongoing session")
+
+    class RacingDatabase:
+        exams = db.exams
+        questions = db.questions
+        sessions = RacingSessions()
+
+    result = await start_exam(
+        str(exam_id),
+        StartIn(consent=True),
+        user={"user_id": str(student_id)},
+        db=RacingDatabase(),
+    )
+
+    assert result["session_id"] == str(session_id)
 
 
 @pytest.mark.asyncio

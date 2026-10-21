@@ -80,12 +80,48 @@ async def create_indexes():
         await db.sessions.create_index([("student_id", 1), ("exam_id", 1), ("status", 1)])
         await db.sessions.create_index("exam_id")
 
+        duplicate_ongoing_sessions = await db.sessions.aggregate([
+            {
+                "$match": {
+                    "status": "ongoing",
+                    "student_id": {"$exists": True, "$ne": None},
+                    "exam_id": {"$exists": True, "$ne": None},
+                }
+            },
+            {
+                "$group": {
+                    "_id": {"student_id": "$student_id", "exam_id": "$exam_id"},
+                    "count": {"$sum": 1},
+                }
+            },
+            {"$match": {"count": {"$gt": 1}}},
+            {"$limit": 10},
+        ]).to_list(length=10)
+        if duplicate_ongoing_sessions:
+            logger.error(
+                "Cannot enforce one ongoing session per student and exam; "
+                "resolve duplicate sessions before starting the application: %s",
+                duplicate_ongoing_sessions,
+            )
+            raise RuntimeError(
+                "Duplicate ongoing exam sessions exist. Resolve them before creating "
+                "the unique session index."
+            )
+
+        await db.sessions.create_index(
+            [("student_id", 1), ("exam_id", 1)],
+            unique=True,
+            partialFilterExpression={"status": "ongoing"},
+            name="uniq_ongoing_session_per_student_exam",
+        )
+
         # Distributed rate-limit counters are removed after their fixed window ends.
         await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
 
         logger.info("Database indexes created")
-    except Exception as e:
-        logger.error(f"Index creation error: {str(e)}")
+    except Exception:
+        logger.exception("Index creation error")
+        raise
 
 
 def get_db() -> AsyncIOMotorDatabase:

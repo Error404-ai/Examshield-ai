@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from bson import ObjectId
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -157,18 +158,26 @@ async def start_exam(
 
     now = datetime.utcnow()
     # Atomic "resume or create": a refresh or a double request returns the same session
-    session = await db.sessions.find_one_and_update(
-        {"student_id": sid, "exam_id": exam_id, "status": ONGOING},
-        {"$setOnInsert": {
-            "started_at": now,
-            "expires_at": now + timedelta(minutes=exam["duration"]),
-            "consented_at": now,
-            "proctoring_alerts": [],
-            "draft_answers": {},
-        }},
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
-    )
+    try:
+        session = await db.sessions.find_one_and_update(
+            {"student_id": sid, "exam_id": exam_id, "status": ONGOING},
+            {"$setOnInsert": {
+                "started_at": now,
+                "expires_at": now + timedelta(minutes=exam["duration"]),
+                "consented_at": now,
+                "proctoring_alerts": [],
+                "draft_answers": {},
+            }},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+    except DuplicateKeyError:
+        # Another request may have created this student's ongoing session first.
+        session = await db.sessions.find_one(
+            {"student_id": sid, "exam_id": exam_id, "status": ONGOING}
+        )
+        if session is None:
+            raise
 
     remaining = max(0, int((session["expires_at"] - now).total_seconds()))
     return {
