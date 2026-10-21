@@ -7,6 +7,7 @@ Google retires Gemini models often, so a retired model (HTTP 404) falls back
 to the next model in the list instead of breaking the generator.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ DEFAULT_MODEL = "gemini-3.8-flash"
 # Tried in order after GEMINI_MODEL (if set). Update when Google retires models:
 # https://ai.google.dev/gemini-api/docs/deprecations
 FALLBACK_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash"]
+TRANSIENT_RETRIES = 2
 
 
 class AIUnavailable(Exception):
@@ -104,6 +106,29 @@ async def _post(client: httpx.AsyncClient, model: str, headers: Dict, payload: D
     return await client.post(f"{API_BASE}/{model}:generateContent", headers=headers, json=payload)
 
 
+async def _post_with_retry(
+    client: httpx.AsyncClient,
+    model: str,
+    headers: Dict,
+    payload: Dict,
+) -> httpx.Response:
+    for attempt in range(TRANSIENT_RETRIES + 1):
+        response = await _post(client, model, headers, payload)
+        if response.status_code not in (500, 503) or attempt == TRANSIENT_RETRIES:
+            return response
+        delay = 0.5 * (2 ** attempt)
+        logger.warning(
+            "Gemini model '%s' returned %s; retrying in %.1f seconds (%s/%s)",
+            model,
+            response.status_code,
+            delay,
+            attempt + 1,
+            TRANSIENT_RETRIES,
+        )
+        await asyncio.sleep(delay)
+    raise RuntimeError("Transient retry loop ended unexpectedly")
+
+
 async def generate_questions(
     topic: str,
     count: int,
@@ -133,7 +158,7 @@ async def generate_questions(
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             for model in _model_list():
-                resp = await _post(client, model, headers, payload)
+                resp = await _post_with_retry(client, model, headers, payload)
 
                 # Some models reject the thinking setting: retry once without it
                 if resp.status_code == 400 and "thinking" in resp.text.lower():
