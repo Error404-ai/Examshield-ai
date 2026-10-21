@@ -168,6 +168,53 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
     return {"success": True, "exam_title": exam["title"], "sessions": rows}
 
 
+# ─── Admin: latest alerts for one exam ──────────────────────────────────────
+
+@router.get("/exams/{exam_id}/alerts")
+async def exam_alerts(exam_id: str, admin=Depends(admin_only), db=Depends(get_db)):
+    exam = await db.exams.find_one(
+        {"_id": oid(exam_id), "created_by": admin["user_id"]}, {"title": 1}
+    )
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    rows = await db.sessions.aggregate([
+        {"$match": {"exam_id": exam_id, "proctoring_alerts.0": {"$exists": True}}},
+        {"$unwind": "$proctoring_alerts"},
+        {"$sort": {"proctoring_alerts.timestamp": -1}},
+        {"$limit": 10},
+        {
+            "$project": {
+                "_id": 0,
+                "session_id": {"$toString": "$_id"},
+                "student_id": 1,
+                "alert_type": "$proctoring_alerts.alert_type",
+                "severity": "$proctoring_alerts.severity",
+                "description": "$proctoring_alerts.description",
+                "timestamp": "$proctoring_alerts.timestamp",
+            }
+        },
+    ]).to_list(10)
+
+    student_ids = {row["student_id"] for row in rows}
+    students = {}
+    if student_ids:
+        async for student in db.users.find(
+            {"_id": {"$in": [oid(student_id) for student_id in student_ids]}},
+            {"name": 1},
+        ):
+            students[str(student["_id"])] = student.get("name", "Unknown")
+
+    alerts = [
+        {
+            **row,
+            "student_name": students.get(row["student_id"], "Unknown"),
+        }
+        for row in rows
+    ]
+    return {"success": True, "exam_title": exam["title"], "alerts": alerts}
+
+
 # ─── Admin: alert timeline of one session ────────────────────────────────────
 
 @router.get("/sessions/{session_id}/alerts")

@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.distributed_rate_limit import check_distributed_rate_limit
-from app.routes.proctoring import session_alerts
+from app.routes.proctoring import exam_alerts, session_alerts
 
 
 @pytest.mark.asyncio
@@ -66,3 +66,61 @@ async def test_session_alert_detail_includes_integrity_data(db):
 
     assert detail["integrity_status"] == "pending"
     assert detail["integrity"]["history"] == []
+
+
+@pytest.mark.asyncio
+async def test_exam_alerts_are_scoped_and_ordered_by_recency(db):
+    admin_id, student_id, exam_id, other_exam_id = (ObjectId() for _ in range(4))
+    await db.exams.insert_many([
+        {"_id": exam_id, "created_by": str(admin_id), "title": "Target exam"},
+        {"_id": other_exam_id, "created_by": str(admin_id), "title": "Other exam"},
+    ])
+    await db.users.insert_one({"_id": student_id, "name": "Student"})
+    await db.sessions.insert_many([
+        {
+            "_id": ObjectId(),
+            "exam_id": str(exam_id),
+            "student_id": str(student_id),
+            "proctoring_alerts": [
+                {
+                    "alert_type": "tab_switch",
+                    "severity": "medium",
+                    "description": "Switched tabs",
+                    "timestamp": "2026-10-21T12:00:00Z",
+                },
+                {
+                    "alert_type": "phone_detected",
+                    "severity": "high",
+                    "description": "Phone detected",
+                    "timestamp": "2026-10-21T12:05:00Z",
+                },
+            ],
+        },
+        {
+            "_id": ObjectId(),
+            "exam_id": str(other_exam_id),
+            "student_id": str(student_id),
+            "proctoring_alerts": [
+                {
+                    "alert_type": "eyes_closed",
+                    "severity": "low",
+                    "description": "Eyes closed",
+                    "timestamp": "2026-10-21T12:10:00Z",
+                },
+            ],
+        },
+    ])
+
+    result = await exam_alerts(
+        str(exam_id),
+        admin={"user_id": str(admin_id)},
+        db=db,
+    )
+
+    assert result["exam_title"] == "Target exam"
+    assert [alert["alert_type"] for alert in result["alerts"]] == [
+        "phone_detected",
+        "tab_switch",
+    ]
+    assert all(alert["student_name"] == "Student" for alert in result["alerts"])
+    assert all("session_id" in alert for alert in result["alerts"])

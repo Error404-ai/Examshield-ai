@@ -52,6 +52,11 @@ export interface ProctorAlertRow {
   timestamp: string;
 }
 
+export interface ExamAlert extends ProctorAlertRow {
+  session_id: string;
+  student_name: string;
+}
+
 export interface SessionAlertsDetail {
   session_id: string;
   exam_title: string;
@@ -84,6 +89,11 @@ export const proctoringService = {
   ): Promise<{ exam_title: string; sessions: SessionSummary[] }> {
     const { data } = await api.get(`/proctoring/exams/${examId}/sessions`);
     return { exam_title: data.exam_title, sessions: data.sessions };
+  },
+
+  async getExamAlerts(examId: string): Promise<ExamAlert[]> {
+    const { data } = await api.get(`/proctoring/exams/${examId}/alerts`);
+    return data.alerts;
   },
 
   async getSessionAlerts(sessionId: string): Promise<SessionAlertsDetail> {
