@@ -6,18 +6,19 @@ Data model: exams / questions / sessions as separate collections.
 
 import logging
 import time
-from datetime import datetime
-from typing import Dict, List, Literal
+from datetime import datetime, timedelta
+from typing import Annotated, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pymongo.errors import OperationFailure
 
+from app.core import database
 from app.core.database import get_db
 from app.core.security import require_role
-from app.core.utils import appeal_out, oid, clean
-from app.models.schemas import ExamUpdate, QuestionCreate, SessionStatus
+from app.core.utils import oid, clean
+from app.models.schemas import ExamUpdate, QuestionCreate, QuestionType, SessionStatus
 from app.services.ai_service import AIGenerationError, AIUnavailable, generate_questions
-from app.services.grading_service import OPEN_STATES, WRITTEN_TYPES, compute_totals, grade_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,9 +46,71 @@ class GenerateIn(BaseModel):
     context: str = Field("", max_length=6000)
 
 
-class GradeAnswerIn(BaseModel):
-    marks: float = Field(..., ge=0)
-    note: str = Field("", max_length=500)
+# ─── Save an exam and all its questions in one go ────────────────────────────
+
+class QuestionDraft(BaseModel):
+    id: Optional[str] = None  # present for questions that already exist
+    question_text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=1000)]
+    options: List[str] = Field(..., min_length=2, max_length=6)
+    correct_answer: str
+    marks: int = Field(..., gt=0, le=100)
+
+    @model_validator(mode="after")
+    def check_options(self) -> "QuestionDraft":
+        options = [o.strip() for o in self.options]
+        if any(not o for o in options):
+            raise ValueError("Options cannot be empty")
+        if len({o.lower() for o in options}) != len(options):
+            raise ValueError("Options must be different from each other")
+        answer = self.correct_answer.strip()
+        if answer not in options:
+            raise ValueError("Correct answer must be one of the options")
+        self.options = options
+        self.correct_answer = answer
+        return self
+
+
+class ExamFullIn(BaseModel):
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=200)]
+    description: Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] = ""
+    duration: int = Field(..., gt=0, le=300)
+    passing_percentage: int = Field(40, ge=0, le=100)
+    is_published: bool = False
+    questions: List[QuestionDraft] = Field(..., min_length=1, max_length=200)
+
+
+def _totals(body: ExamFullIn) -> tuple:
+    total = sum(q.marks for q in body.questions)
+    passing = (total * body.passing_percentage + 99) // 100  # integer ceil
+    return total, passing
+
+
+def _question_doc(exam_id: str, q: QuestionDraft) -> dict:
+    return {
+        "exam_id": exam_id,
+        "question_text": q.question_text,
+        "question_type": QuestionType.MCQ.value,
+        "options": q.options,
+        "correct_answer": q.correct_answer,
+        "marks": q.marks,
+    }
+
+
+async def _transact(work):
+    """
+    Run work(session) inside a MongoDB transaction (auto-retries transient errors).
+    A standalone local mongod has no transaction support (error code 20); in that
+    case the work runs without one so local development keeps working. Atlas
+    always supports transactions.
+    """
+    try:
+        async with await database.client.start_session() as session:
+            return await session.with_transaction(work)
+    except OperationFailure as exc:
+        if exc.code == 20:
+            logger.warning("MongoDB transactions unavailable (standalone server); saving without one")
+            return await work(None)
+        raise
 
 
 def _check_gen_rate(admin_id: str) -> None:
@@ -78,120 +141,6 @@ async def _sync_total_marks(db, exam_id: str) -> None:
     await db.exams.update_one({"_id": oid(exam_id)}, {"$set": {"total_marks": total}})
 
 
-@router.get("/sessions/{session_id}/review")
-async def review_session(session_id: str, admin=Depends(admin_only), db=Depends(get_db)):
-    session = await db.sessions.find_one({"_id": oid(session_id)})
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    exam = await db.exams.find_one(
-        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}
-    )
-    if not exam:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if session.get("status") == SessionStatus.ONGOING.value:
-        raise HTTPException(status_code=409, detail="This attempt has not been submitted")
-
-    student = await db.users.find_one({"_id": oid(session["student_id"])}, {"name": 1, "email": 1}) or {}
-    answer_ids = [oid(a["question_id"]) for a in session.get("answers", []) if a.get("question_id")]
-    questions = {}
-    if answer_ids:
-        async for question in db.questions.find({"_id": {"$in": answer_ids}}):
-            questions[str(question["_id"])] = question
-
-    answers = []
-    for answer in session.get("answers", []):
-        row = dict(answer)
-        question = questions.get(answer.get("question_id"), {})
-        row.setdefault("question_type", question.get("question_type", ""))
-        row.setdefault("question_text", question.get("question_text", ""))
-        row.setdefault("correct_answer", question.get("correct_answer", ""))
-        row["rubric"] = question.get("rubric", "")
-        answers.append(row)
-
-    result = clean(session)
-    result.update(
-        exam_title=exam.get("title", "Deleted exam"),
-        student_name=student.get("name", "Unknown"),
-        student_email=student.get("email", ""),
-        answers=answers,
-    )
-    return {"success": True, "session": result}
-
-
-@router.put("/sessions/{session_id}/answers/{question_id}/grade")
-async def grade_answer(
-    session_id: str,
-    question_id: str,
-    body: GradeAnswerIn,
-    admin=Depends(admin_only),
-    db=Depends(get_db),
-):
-    session = await db.sessions.find_one({"_id": oid(session_id)})
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    exam = await db.exams.find_one(
-        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}
-    )
-    if not exam:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if session.get("status") == SessionStatus.ONGOING.value:
-        raise HTTPException(status_code=409, detail="This attempt has not been submitted")
-
-    answer = next((a for a in session.get("answers", []) if a.get("question_id") == question_id), None)
-    if not answer:
-        raise HTTPException(status_code=404, detail="Answer not found")
-    if answer.get("question_type") not in WRITTEN_TYPES:
-        raise HTTPException(status_code=400, detail="Only written answers can be manually graded")
-    if body.marks > answer.get("marks", 0):
-        raise HTTPException(status_code=422, detail="Marks cannot exceed the question maximum")
-
-    answer.update(
-        marks_awarded=body.marks,
-        is_correct=body.marks >= answer.get("marks", 0),
-        grading="manual",
-        examiner_note=body.note.strip(),
-        needs_review=False,
-    )
-    has_open = any(a.get("grading") in OPEN_STATES for a in session.get("answers", []))
-    fields = {
-        "answers": session["answers"],
-        **compute_totals(session["answers"], exam.get("passing_marks", 0)),
-        "grading_status": "failed" if has_open else "done",
-        "grading_error": session.get("grading_error", "") if has_open else "",
-        "review_needed": any(a.get("needs_review") for a in session["answers"]),
-    }
-    await db.sessions.update_one({"_id": session["_id"]}, {"$set": fields})
-    return {"success": True, **{k: fields[k] for k in ("score", "total_marks", "percentage", "passed", "grading_status")}}
-
-
-@router.post("/sessions/{session_id}/regrade")
-async def regrade_session(
-    session_id: str,
-    background_tasks: BackgroundTasks,
-    admin=Depends(admin_only),
-    db=Depends(get_db),
-):
-    session = await db.sessions.find_one({"_id": oid(session_id)})
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    exam = await db.exams.find_one(
-        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}
-    )
-    if not exam:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if session.get("status") == SessionStatus.ONGOING.value:
-        raise HTTPException(status_code=409, detail="This attempt has not been submitted")
-    if session.get("grading_status") != "failed":
-        raise HTTPException(status_code=409, detail="Only failed grading can be retried")
-
-    await db.sessions.update_one(
-        {"_id": session["_id"], "grading_status": "failed"},
-        {"$set": {"grading_status": "pending", "grading_error": ""}},
-    )
-    background_tasks.add_task(grade_session, db, session["_id"])
-    return {"success": True, "grading_status": "pending"}
-
-
 # ─── Dashboard ───────────────────────────────────────────────────────────────
 
 @router.get("/dashboard")
@@ -209,14 +158,101 @@ async def dashboard(admin=Depends(admin_only), db=Depends(get_db)):
             "total_sessions": await db.sessions.count_documents(
                 {"exam_id": {"$in": exam_ids}}
             ),
-            "pending_appeals": await db.sessions.count_documents(
-                {"exam_id": {"$in": exam_ids}, "appeal.status": "pending"}
-            ),
         },
     }
 
 
 # ─── Exams ───────────────────────────────────────────────────────────────────
+
+@router.post("/exams/full")
+async def create_exam_full(body: ExamFullIn, admin=Depends(admin_only), db=Depends(get_db)):
+    """Create an exam with all its questions atomically (all saved, or nothing)"""
+    now = datetime.utcnow()
+    total, passing = _totals(body)
+
+    async def work(session):
+        result = await db.exams.insert_one(
+            {
+                "title": body.title,
+                "description": body.description,
+                "duration": body.duration,
+                "total_marks": total,
+                "passing_marks": passing,
+                "is_published": body.is_published,
+                "created_by": admin["user_id"],
+                "created_at": now,
+                "updated_at": now,
+            },
+            session=session,
+        )
+        exam_id = str(result.inserted_id)
+        # Mongo stores milliseconds, so offset by 1 ms each to keep the order stable
+        docs = [
+            {**_question_doc(exam_id, q), "created_at": now + timedelta(milliseconds=i)}
+            for i, q in enumerate(body.questions)
+        ]
+        await db.questions.insert_many(docs, session=session)
+        return exam_id
+
+    exam_id = await _transact(work)
+    return {"success": True, "exam_id": exam_id}
+
+
+@router.put("/exams/{exam_id}/full")
+async def update_exam_full(
+    exam_id: str, body: ExamFullIn, admin=Depends(admin_only), db=Depends(get_db)
+):
+    """
+    Replace an exam's details and question list atomically.
+    Questions with an id are updated, questions without one are added, and
+    existing questions missing from the list are deleted.
+    """
+    await _owned_exam(db, exam_id, admin["user_id"])
+    now = datetime.utcnow()
+    total, passing = _totals(body)
+
+    sent_ids = [q.id for q in body.questions if q.id]
+    if len(set(sent_ids)) != len(sent_ids):
+        raise HTTPException(status_code=400, detail="The same question appears twice")
+
+    async def work(session):
+        existing = {
+            str(q["_id"])
+            async for q in db.questions.find({"exam_id": exam_id}, {"_id": 1}, session=session)
+        }
+        if any(i not in existing for i in sent_ids):
+            raise HTTPException(status_code=400, detail="A question does not belong to this exam")
+
+        gone = [oid(i) for i in existing if i not in set(sent_ids)]
+        if gone:
+            await db.questions.delete_many({"_id": {"$in": gone}}, session=session)
+
+        for i, q in enumerate(body.questions):
+            doc = _question_doc(exam_id, q)
+            if q.id:
+                doc["updated_at"] = now
+                await db.questions.update_one({"_id": oid(q.id)}, {"$set": doc}, session=session)
+            else:
+                doc["created_at"] = now + timedelta(milliseconds=i)
+                await db.questions.insert_one(doc, session=session)
+
+        await db.exams.update_one(
+            {"_id": oid(exam_id)},
+            {"$set": {
+                "title": body.title,
+                "description": body.description,
+                "duration": body.duration,
+                "total_marks": total,
+                "passing_marks": passing,
+                "is_published": body.is_published,
+                "updated_at": now,
+            }},
+            session=session,
+        )
+
+    await _transact(work)
+    return {"success": True, "message": "Exam saved"}
+
 
 @router.post("/exams")
 async def create_exam(body: ExamIn, admin=Depends(admin_only), db=Depends(get_db)):
@@ -366,8 +402,6 @@ async def exam_results(exam_id: str, admin=Depends(admin_only), db=Depends(get_d
     for s in sessions:
         row = clean(s)
         row.pop("answers", None)
-        row.pop("draft_answers", None)
-        row["appeal"] = appeal_out(s.get("appeal"))
         row["student_name"] = students[s["student_id"]].get("name", "Unknown")
         row["student_email"] = students[s["student_id"]].get("email", "")
         results.append(row)

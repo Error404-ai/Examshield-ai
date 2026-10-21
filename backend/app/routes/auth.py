@@ -1,11 +1,13 @@
 """
 ExamShield AI - Authentication Routes
 User registration, login, and token management
+
+Admins are never created through the API. Register normally, then promote the
+account from your own machine: python -m scripts.make_admin you@example.com
 """
 
 from datetime import datetime, timezone
 import logging
-import os
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -18,14 +20,12 @@ from app.models.schemas import UserCreate, LoginRequest
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-ADMIN_EMAILS = {e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()}
-
 
 # ─── Register ────────────────────────────────────────────────────────────────
 
 @router.post("/register", response_model=dict)
 async def register(user_data: UserCreate, db=Depends(get_db)):
-    """Register a new user and log them in straight away"""
+    """Register a new student and log them in straight away"""
     try:
         users_col = db["users"]
         email = user_data.email.strip().lower()
@@ -38,8 +38,9 @@ async def register(user_data: UserCreate, db=Depends(get_db)):
                 detail="User already exists with this email"
             )
 
-        # Role is decided by the server only (ADMIN_EMAILS env var), never by the client
-        role = "admin" if email in ADMIN_EMAILS else "student"
+        # Always a student. The client's role field is ignored, and emails are not
+        # verified, so the API must never grant admin by itself.
+        role = "student"
 
         now = datetime.now(timezone.utc)
         user_doc = {
