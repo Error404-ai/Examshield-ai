@@ -3,13 +3,20 @@ Application Configuration
 Settings management using Pydantic V2
 """
 
+import logging
+import os
+from typing import List
+
 try:
     from pydantic_settings import BaseSettings  # preferred (separate package)
 except Exception:  # fallback for environments with pydantic exposing BaseSettings
     from pydantic import BaseSettings
 from pydantic import ConfigDict
-from typing import List
-import os
+
+logger = logging.getLogger(__name__)
+
+_PLACEHOLDER_SECRET = "your-secret-key-change-in-production"
+_MIN_SECRET_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -30,7 +37,8 @@ class Settings(BaseSettings):
     DATABASE_NAME: str = "examshield_db"
 
     # JWT Configuration
-    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
+    # The placeholder is only tolerated when DEBUG=true (see check_secrets below)
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", _PLACEHOLDER_SECRET)
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24
     REFRESH_TOKEN_EXPIRATION_DAYS: int = 7
@@ -44,22 +52,6 @@ class Settings(BaseSettings):
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1", "*.hf.space", "*.onrender.com"]
     EXTRA_ALLOWED_HOSTS: str = os.getenv("EXTRA_ALLOWED_HOSTS", "")
     EXTRA_CORS_ORIGINS: str = os.getenv("EXTRA_CORS_ORIGINS", "")
-
-    # ML Model Configuration
-    FACE_RECOGNITION_THRESHOLD: float = 0.6
-    EYE_GAZE_THRESHOLD: float = 0.7
-    CONFIDENCE_THRESHOLD: float = 0.8
-
-    # Proctoring Settings
-    MAX_HEAD_MOVEMENT: float = 30.0  # degrees
-    MAX_EYE_DEVIATION: float = 20.0  # degrees
-    FRAME_CAPTURE_INTERVAL: int = 2  # seconds
-    ALLOWED_TAB_SWITCHES: int = 2
-
-    # File Storage
-    MAX_VIDEO_DURATION: int = 300  # 5 minutes max for uploads
-    UPLOAD_DIR: str = "uploads/"
-    MODEL_DIR: str = "models/"
 
     # Security
     BCRYPT_ROUNDS: int = 12
@@ -83,5 +75,22 @@ class Settings(BaseSettings):
     )
 
 
+def check_secrets(s: Settings) -> None:
+    """Refuse to start with a missing, placeholder or short JWT secret (unless DEBUG=true)"""
+    key = s.JWT_SECRET_KEY
+    weak = key == _PLACEHOLDER_SECRET or len(key) < _MIN_SECRET_LENGTH
+    if not weak:
+        return
+    message = (
+        f"JWT_SECRET_KEY is missing, a placeholder, or shorter than {_MIN_SECRET_LENGTH} characters. "
+        'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+    )
+    if s.DEBUG:
+        logger.warning(f"{message} (allowed because DEBUG=true)")
+    else:
+        raise RuntimeError(message)
+
+
 # Create settings instance
 settings = Settings()
+check_secrets(settings)
