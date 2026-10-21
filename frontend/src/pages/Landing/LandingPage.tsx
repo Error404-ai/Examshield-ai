@@ -10,19 +10,25 @@ import { motion, MotionConfig } from "framer-motion";
 import Lenis from "lenis";
 import { ScanCanvas } from "../../components/landing/ScanCanvas";
 
-// Values mirror backend/app/routes/proctoring.py
+// Values mirror backend/app/routes/proctoring.py (SEVERITY_WEIGHT) and
+// frontend/src/hooks/useProctoring.ts (RULES, PHONE_*). Update all together.
+// Face checks run every 500ms, so "about N seconds" = samples x 0.5s.
 const SIGNALS = [
-  { name: "More than one person", when: "A second face appears in the camera", severity: "Critical", weight: 25 },
-  { name: "Camera turned off", when: "The video stream ends mid-exam", severity: "Critical", weight: 25 },
-  { name: "No face in view", when: "Nobody is visible for three checks in a row", severity: "High", weight: 10 },
-  { name: "Left the exam tab", when: "The student switches tab or window. The fifth switch ends the exam", severity: "High", weight: 10 },
-  { name: "Looking away", when: "The head stays turned from the screen for three checks", severity: "Medium", weight: 3 },
+  { name: "More than one person", when: "A second face stays in view for about two seconds", severity: "Critical", weight: 15 },
+  { name: "Camera turned off", when: "The video stream ends mid-exam", severity: "High", weight: 8 },
+  { name: "No face in view", when: "Nobody is visible for about three seconds", severity: "High", weight: 8 },
+  { name: "Phone in view", when: "A phone is seen in two checks in a row", severity: "High", weight: 8 },
+  { name: "Left the exam tab", when: "The student switches tab or window. The third switch ends the exam", severity: "Medium", weight: 3 },
+  { name: "Left fullscreen", when: "The student exits fullscreen mode", severity: "Medium", weight: 3 },
+  { name: "Looking away", when: "The head or eyes stay turned from the screen for about three seconds", severity: "Medium", weight: 3 },
+  { name: "Eyes closed", when: "Eyes stay closed for about four seconds", severity: "Low", weight: 1 },
 ];
 
 const severityColor: Record<string, string> = {
   Critical: "text-rose",
   High: "text-amber",
   Medium: "text-cyan-400",
+  Low: "text-slate-400",
 };
 
 const STEPS = [
@@ -32,7 +38,7 @@ const STEPS = [
   },
   {
     title: "Detection in the browser",
-    body: "A face model checks the camera every second. A problem has to last three checks in a row before it counts, so a cough or a glance down doesn't flag anyone.",
+    body: "A face model checks the camera twice a second. A problem has to last a few seconds in a row before it counts, so a cough or a glance down doesn't flag anyone.",
   },
   {
     title: "Events go to the server, not video",
@@ -120,10 +126,11 @@ export const LandingPage: React.FC = () => {
         <section className="border-t border-white/10">
           <div className="mx-auto max-w-[1500px] px-6 lg:px-12 py-24">
             <h2 className="max-w-xl font-display text-3xl font-medium tracking-tight text-white sm:text-4xl">
-              Five things get flagged, each with a fixed weight
+              Eight things get flagged, each with a fixed weight
             </h2>
             <p className="mt-4 max-w-xl text-slate-400">
-              The weights add up to the session&rsquo;s suspicion score, capped at 100. Below 20 is approve, 20 to 49 is
+              Each flag adds its points to the session&rsquo;s suspicion score, capped at 100. Repeats of the same flag
+              are rate-limited, so one long glance doesn&rsquo;t count fifty times. Below 20 is approve, 20 to 49 is
               review, 50 and above is reject.
             </p>
 

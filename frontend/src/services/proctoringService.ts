@@ -1,15 +1,11 @@
 /**
  * Proctoring Service
  * Students: send short proctoring events detected in the browser.
- * Admins: read per-exam session summaries and per-session alert timelines,
- * and resolve student appeals.
+ * Admins: read per-exam session summaries and per-session alert timelines.
  */
 
 import api from "./api";
 import { AlertSeverity } from "../types";
-import type { IntegrityInfo, IntegrityStatus } from "./integrityService";
-
-type Appeal = Record<string, unknown>;
 
 export type ProctorEventType =
   | "tab_switch"
@@ -39,16 +35,13 @@ export interface SessionSummary {
   total_marks: number | null;
   percentage: number | null;
   passed: boolean | null;
-  grading_status?: "pending" | "done" | "failed";
-  review_needed?: boolean;
   started_at: string | null;
   submitted_at: string | null;
   total_alerts: number;
   counts: Record<string, number>;
+  tab_limit_reached: boolean;
   suspicion_score: number;
   recommendation: Recommendation;
-  integrity_status: IntegrityStatus | null;
-  appeal: Appeal | null;
 }
 
 export interface ProctorAlertRow {
@@ -65,19 +58,17 @@ export interface SessionAlertsDetail {
   student_email: string;
   total_alerts: number;
   counts: Record<string, number>;
+  tab_limit_reached: boolean;
   suspicion_score: number;
   recommendation: Recommendation;
-  integrity_status: IntegrityStatus | null;
-  integrity: IntegrityInfo;
   alerts: ProctorAlertRow[];
-  appeal: Appeal | null;
 }
 
 export const proctoringService = {
   async logEvent(
     sessionId: string,
     event: ProctorEventPayload
-  ): Promise<{ success: boolean; tab_switch_count: number }> {
+  ): Promise<{ success: boolean; tab_switch_count: number; limit_reached: boolean }> {
     const { data } = await api.post("/proctoring/events", {
       session_id: sessionId,
       ...event,
@@ -95,13 +86,5 @@ export const proctoringService = {
   async getSessionAlerts(sessionId: string): Promise<SessionAlertsDetail> {
     const { data } = await api.get(`/proctoring/sessions/${sessionId}/alerts`);
     return data;
-  },
-
-  async resolveAppeal(
-    sessionId: string,
-    decision: "accepted" | "rejected",
-    note: string
-  ): Promise<void> {
-    await api.put(`/proctoring/sessions/${sessionId}/appeal`, { decision, note });
   },
 };

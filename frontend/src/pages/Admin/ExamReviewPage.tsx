@@ -2,23 +2,20 @@
  * Exam Review Page (admin)
  * Two tabs: proctoring review of sessions, and exam analytics.
  * Sessions auto-refresh so an exam can be watched live.
- * Flags are decided here or in the cross-exam queue (/admin/integrity).
  */
 
 import { PageHeader } from "../../components/common/PageHeader";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   proctoringService,
   SessionSummary,
   SessionAlertsDetail,
   Recommendation,
 } from "../../services/proctoringService";
-import { STATUS_LABEL, STATUS_VARIANT } from "../../services/integrityService";
 import { ExamAnalyticsPanel } from "../../components/admin/ExamAnalyticsPanel";
-import { IntegrityDecisionPanel } from "../../components/admin/IntegrityDecisionPanel";
 import { StatStrip } from "../../components/common/Statstrip";
-import { Alert, Badge } from "../../components/common/Badge";
+import { Alert } from "../../components/common/Badge";
 import { SessionStatus } from "../../types";
 import {
   formatDateTime,
@@ -38,7 +35,7 @@ const typeLabel: Record<string, string> = {
   looking_away: "Looking away",
   eyes_closed: "Eyes closed",
   camera_blocked: "Camera blocked",
-  phone_detected: "Phone seen",
+  phone_detected: "Phone detected",
 };
 
 const recLabel: Record<Recommendation, string> = {
@@ -84,7 +81,6 @@ export const ExamReviewPage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SessionAlertsDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [tick, setTick] = useState(0); // bumped after a decision to refetch the detail
   const detailIdRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
@@ -132,12 +128,7 @@ export const ExamReviewPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedId, selectedAlertCount, tick]);
-
-  const onDecided = () => {
-    setTick((t) => t + 1);
-    load();
-  };
+  }, [selectedId, selectedAlertCount]);
 
   const flagged = sessions.filter((s) => s.recommendation !== "approve").length;
   const live = sessions.filter((s) => s.status === SessionStatus.ONGOING).length;
@@ -170,11 +161,6 @@ export const ExamReviewPage: React.FC = () => {
         eyebrow="Exam review"
         title={examTitle || "Exam"}
         subtitle="Results, AI proctoring review and exam analytics."
-        actions={
-          <Link to="/admin/integrity" className="text-sm font-medium text-indigo-700 hover:text-indigo-900">
-            Open the integrity queue
-          </Link>
-        }
       />
 
       {error && (
@@ -256,7 +242,6 @@ export const ExamReviewPage: React.FC = () => {
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Score</th>
                     <th className="px-4 py-3 font-medium">Proctoring risk</th>
-                    <th className="px-4 py-3 font-medium">Integrity</th>
                     <th className="px-4 py-3 font-medium">Alerts</th>
                     <th className="px-4 py-3 font-medium">Submitted</th>
                   </tr>
@@ -278,21 +263,14 @@ export const ExamReviewPage: React.FC = () => {
                         {getSessionStatusLabel(s.status as SessionStatus)}
                       </td>
                       <td className="px-4 py-3 text-gray-700">
-                        <div className="flex flex-col gap-1">
-                          {s.percentage !== null ? (
-                            <span>
-                              {s.score}/{s.total_marks}{" "}
-                              <span className="text-xs text-gray-500">({s.percentage.toFixed(1)}%)</span>
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                          {s.grading_status === "pending" && <Badge variant="info">AI grading…</Badge>}
-                          {s.grading_status === "failed" && <Badge variant="error">Grading failed</Badge>}
-                          {s.grading_status === "done" && s.review_needed && (
-                            <Badge variant="warning">Check written answers</Badge>
-                          )}
-                        </div>
+                        {s.percentage !== null ? (
+                          <>
+                            {s.score}/{s.total_marks}{" "}
+                            <span className="text-xs text-gray-500">({s.percentage.toFixed(1)}%)</span>
+                          </>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1">
@@ -300,16 +278,14 @@ export const ExamReviewPage: React.FC = () => {
                           <RiskBadge rec={s.recommendation} />
                         </div>
                       </td>
-                      <td className="px-4 py-3">
-                        {s.integrity_status && s.integrity_status !== "clear" ? (
-                          <Badge variant={STATUS_VARIANT[s.integrity_status]} dot>
-                            {STATUS_LABEL[s.integrity_status]}
-                          </Badge>
-                        ) : (
-                          <span className="text-gray-400">—</span>
+                      <td className="px-4 py-3 text-gray-700">
+                        <span className="tabular-nums">{s.total_alerts}</span>
+                        {s.tab_limit_reached && (
+                          <span className="ml-2 inline-block rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-red-800">
+                            Tab limit hit
+                          </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 tabular-nums text-gray-700">{s.total_alerts}</td>
                       <td className="px-4 py-3 text-xs text-gray-500">
                         {s.submitted_at ? formatDateTime(s.submitted_at) : "—"}
                       </td>
@@ -328,69 +304,60 @@ export const ExamReviewPage: React.FC = () => {
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
                 </div>
               ) : (
-                <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
-                  <div>
-                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h2 className="font-display text-lg font-semibold text-gray-900">{detail.student_name}</h2>
-                        <p className="text-sm text-gray-500">{detail.student_email}</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {detail.integrity_status !== null && (
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/admin/sessions/${selectedId}/review`)}
-                            className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-                          >
-                            Review answers
-                          </button>
-                        )}
-                        <RiskBar score={detail.suspicion_score} rec={detail.recommendation} />
-                        <RiskBadge rec={detail.recommendation} />
-                      </div>
+                <>
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="font-display text-lg font-semibold text-gray-900">{detail.student_name}</h2>
+                      <p className="text-sm text-gray-500">{detail.student_email}</p>
                     </div>
+                    <div className="flex items-center gap-3">
+                      <RiskBar score={detail.suspicion_score} rec={detail.recommendation} />
+                      <RiskBadge rec={detail.recommendation} />
+                    </div>
+                  </div>
 
-                    {Object.keys(detail.counts).length > 0 && (
-                      <div className="mb-5 flex flex-wrap gap-2">
-                        {Object.entries(detail.counts).map(([type, n]) => (
-                          <span
-                            key={type}
-                            className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-700"
-                          >
-                            {typeLabel[type] ?? type}: <strong>{n}</strong>
+                  {detail.tab_limit_reached && (
+                    <div className="mb-4 border-l-2 border-red-500 bg-red-50/70 px-4 py-3 text-sm text-red-800">
+                      This student reached the tab-switch limit, so the exam was set to auto-submit in their browser.
+                    </div>
+                  )}
+
+                  {Object.keys(detail.counts).length > 0 && (
+                    <div className="mb-5 flex flex-wrap gap-2">
+                      {Object.entries(detail.counts).map(([type, n]) => (
+                        <span
+                          key={type}
+                          className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-700"
+                        >
+                          {typeLabel[type] ?? type}: <strong>{n}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <h3 className="mb-2 text-sm font-semibold text-gray-900">Timeline</h3>
+                  {detail.alerts.length === 0 ? (
+                    <p className="text-sm text-gray-500">No suspicious activity recorded.</p>
+                  ) : (
+                    <div className="flex max-h-96 flex-col gap-1.5 overflow-y-auto">
+                      {detail.alerts.map((a, i) => (
+                        <div
+                          key={i}
+                          className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm ${getAlertSeverityColor(
+                            a.severity
+                          )}`}
+                        >
+                          <span className="shrink-0 text-xs tabular-nums opacity-70">
+                            {new Date(a.timestamp).toLocaleTimeString("en-IN")}
                           </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <h3 className="mb-2 text-sm font-semibold text-gray-900">Timeline</h3>
-                    {detail.alerts.length === 0 ? (
-                      <p className="text-sm text-gray-500">No suspicious activity recorded.</p>
-                    ) : (
-                      <div className="flex max-h-96 flex-col gap-1.5 overflow-y-auto">
-                        {detail.alerts.map((a, i) => (
-                          <div
-                            key={i}
-                            className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm ${getAlertSeverityColor(
-                              a.severity
-                            )}`}
-                          >
-                            <span className="shrink-0 text-xs tabular-nums opacity-70">
-                              {new Date(a.timestamp).toLocaleTimeString("en-IN")}
-                            </span>
-                            <span className="shrink-0 font-medium">{typeLabel[a.alert_type] ?? a.alert_type}</span>
-                            <span className="opacity-80">{a.description}</span>
-                            <span className="ml-auto text-xs uppercase opacity-70">{a.severity}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="lg:border-l lg:border-gray-200 lg:pl-8">
-                    <IntegrityDecisionPanel key={detail.session_id} detail={detail} onChanged={onDecided} />
-                  </div>
-                </div>
+                          <span className="shrink-0 font-medium">{typeLabel[a.alert_type] ?? a.alert_type}</span>
+                          <span className="opacity-80">{a.description}</span>
+                          <span className="ml-auto text-xs uppercase opacity-70">{a.severity}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

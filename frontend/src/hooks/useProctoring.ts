@@ -4,12 +4,6 @@
  * tab-switch and fullscreen tracking. Only small events go to the server;
  * video frames never leave the browser.
  *
- * Severities and sample counts come from services/policy.ts, so the notice
- * shown to students and the landing page always match what this hook does.
- *
- * Resuming: pass initialTabSwitches (from the start/resume response) so a
- * page refresh cannot reset the tab-switch count.
- *
  * Fullscreen: browsers only allow requestFullscreen() from a user click, so the
  * exam page must call enterFullscreen() from its "Start exam" button, and show
  * a "Return to fullscreen" overlay (also a click) whenever isFullscreen is false.
@@ -27,7 +21,6 @@ import type {
 } from "@mediapipe/tasks-vision";
 import { AlertSeverity, BehaviorAlert } from "../types";
 import { proctoringService, ProctorEventType } from "../services/proctoringService";
-import { SAMPLE_MS, severityOf, signalOf } from "../services/policy";
 
 export type FaceStatus =
   | "idle"
@@ -46,6 +39,8 @@ const FACE_MODEL_URL =
 const OBJECT_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
 
+const SAMPLE_MS = 500;
+
 // Cooldowns (ms) for events that don't come from the face rules below
 const CAMERA_COOLDOWN = 30000;
 const TAB_COOLDOWN = 2000; // some browsers fire visibilitychange twice on one switch
@@ -62,26 +57,41 @@ const PHONE_DEBUG =
 
 interface Rule {
   type: ProctorEventType;
-  samples: number; // consecutive samples before it counts (samples * SAMPLE_MS)
+  samples: number; // consecutive samples before it counts (samples * 500ms)
   cooldownMs: number; // min gap between two events of this type
   severity: AlertSeverity;
   description: string;
 }
 
-// Severity and samples are read from the policy; only cooldown and wording live here
-const rule = (type: ProctorEventType, cooldownMs: number, description: string): Rule => ({
-  type,
-  samples: signalOf(type).samples ?? 1,
-  cooldownMs,
-  severity: severityOf(type),
-  description,
-});
-
 const RULES: Record<Exclude<FaceStatus, "idle" | "ok">, Rule> = {
-  no_face: rule("face_not_detected", 20000, "No face visible in the camera"),
-  multiple_faces: rule("multiple_faces", 20000, "More than one person detected in the camera"),
-  looking_away: rule("looking_away", 20000, "Student looking away from the screen"),
-  eyes_closed: rule("eyes_closed", 30000, "Eyes closed for an extended time"),
+  no_face: {
+    type: "face_not_detected",
+    samples: 6,
+    cooldownMs: 20000,
+    severity: AlertSeverity.HIGH,
+    description: "No face visible in the camera",
+  },
+  multiple_faces: {
+    type: "multiple_faces",
+    samples: 3,
+    cooldownMs: 20000,
+    severity: AlertSeverity.CRITICAL,
+    description: "More than one person detected in the camera",
+  },
+  looking_away: {
+    type: "looking_away",
+    samples: 6,
+    cooldownMs: 20000,
+    severity: AlertSeverity.MEDIUM,
+    description: "Student looking away from the screen",
+  },
+  eyes_closed: {
+    type: "eyes_closed",
+    samples: 8,
+    cooldownMs: 30000,
+    severity: AlertSeverity.LOW,
+    description: "Eyes closed for an extended time",
+  },
 };
 
 function classify(res: FaceLandmarkerResult): FaceStatus {
@@ -113,31 +123,11 @@ function classify(res: FaceLandmarkerResult): FaceStatus {
   return "ok";
 }
 
-/** Turn a getUserMedia failure into something a student can act on */
-function cameraMessage(err: unknown): string {
-  const name = (err as { name?: string } | null)?.name;
-  switch (name) {
-    case "NotAllowedError":
-    case "SecurityError":
-      return "Camera permission is blocked. Click the camera icon in the address bar, choose Allow, then try again.";
-    case "NotFoundError":
-    case "OverconstrainedError":
-      return "No camera was found. Connect one and try again.";
-    case "NotReadableError":
-    case "AbortError":
-      return "Your camera is being used by another app. Close it and try again.";
-    default:
-      return "The camera could not start. Check your browser settings and try again.";
-  }
-}
-
 export interface ProctoringOptions {
   /** Auto-end the exam when the student has left the tab this many times (e.g. 3) */
   maxTabSwitches?: number;
   /** Called once when the limit is reached; the exam page should submit the exam here */
   onTabLimit?: () => void;
-  /** Tab switches already recorded for this session (from the resume response) */
-  initialTabSwitches?: number;
 }
 
 export interface ProctoringHook {
@@ -160,7 +150,7 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
   // Latest options without re-creating listeners (the callback closes over fresh answers)
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  const tabCountRef = useRef(options.initialTabSwitches ?? 0);
+  const tabCountRef = useRef(0);
   const tabLimitFiredRef = useRef(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -186,7 +176,7 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
   const [phoneDetectorState, setPhoneDetectorState] = useState<ModelState>("idle");
   const [faceStatus, setFaceStatus] = useState<FaceStatus>("idle");
   const [alerts, setAlerts] = useState<BehaviorAlert[]>([]);
-  const [tabSwitchCount, setTabSwitchCount] = useState(options.initialTabSwitches ?? 0);
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(
     typeof document !== "undefined" && !!document.fullscreenElement
   );
@@ -272,7 +262,7 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
       if (phoneStreakRef.current >= PHONE_SAMPLES) {
         emit(
           "phone_detected",
-          severityOf("phone_detected"),
+          AlertSeverity.HIGH,
           "Mobile phone detected in the camera",
           PHONE_COOLDOWN
         );
@@ -307,9 +297,9 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
     }
     if (status === "ok" || status === "idle") return;
 
-    const r = RULES[status];
-    if (streak.count >= r.samples) {
-      emit(r.type, r.severity, r.description, r.cooldownMs);
+    const rule = RULES[status];
+    if (streak.count >= rule.samples) {
+      emit(rule.type, rule.severity, rule.description, rule.cooldownMs);
     }
   }, [emit, checkPhone]);
 
@@ -345,13 +335,13 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
         video: { width: 640, height: 480, facingMode: "user" },
         audio: false,
       });
-    } catch (err) {
+    } catch {
       if (isStale()) return; // a newer start() or stop() owns the state now
       runningRef.current = false;
       // Not logged as a violation: the exam page must not begin until the camera works,
       // so a failed start is a setup problem, not cheating. Only a camera that stops
       // after it was running (the "ended" listener below) is recorded.
-      setCameraError(cameraMessage(err));
+      setCameraError("Camera access is required for this exam. Allow the camera and try again.");
       return;
     }
 
@@ -367,12 +357,7 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
     if (track) {
       const onEnded = () => {
         if (isStale() || streamRef.current !== stream) return;
-        emit(
-          "camera_blocked",
-          severityOf("camera_blocked"),
-          "Camera was turned off or disconnected",
-          CAMERA_COOLDOWN
-        );
+        emit("camera_blocked", AlertSeverity.HIGH, "Camera was turned off or disconnected", CAMERA_COOLDOWN);
         setCameraError("Your camera was disconnected. Reconnect it to continue.");
         setCameraReady(false);
         setFaceStatus("idle");
@@ -475,12 +460,7 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
     const onVisibility = () => {
       if (!document.hidden) return;
       // count only events that pass the cooldown, so the counter matches the alerts
-      const sent = emit(
-        "tab_switch",
-        severityOf("tab_switch"),
-        "Student left the exam tab",
-        TAB_COOLDOWN
-      );
+      const sent = emit("tab_switch", AlertSeverity.MEDIUM, "Student left the exam tab", TAB_COOLDOWN);
       if (!sent) return;
 
       tabCountRef.current += 1;
@@ -496,20 +476,6 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [emit]);
 
-  // Resumed after the limit was already reached (e.g. the auto-submit failed before a refresh):
-  // submit again instead of letting the student carry on.
-  useEffect(() => {
-    const { maxTabSwitches, onTabLimit } = optionsRef.current;
-    if (
-      maxTabSwitches &&
-      tabCountRef.current >= maxTabSwitches &&
-      !tabLimitFiredRef.current
-    ) {
-      tabLimitFiredRef.current = true;
-      onTabLimit?.();
-    }
-  }, []);
-
   // Fullscreen: track state, log exits
   useEffect(() => {
     const onFullscreen = () => {
@@ -519,12 +485,7 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
         wasFullscreenRef.current = true;
       } else if (wasFullscreenRef.current) {
         wasFullscreenRef.current = false;
-        emit(
-          "fullscreen_exit",
-          severityOf("fullscreen_exit"),
-          "Student exited fullscreen mode",
-          FULLSCREEN_COOLDOWN
-        );
+        emit("fullscreen_exit", AlertSeverity.MEDIUM, "Student exited fullscreen mode", FULLSCREEN_COOLDOWN);
       }
     };
     document.addEventListener("fullscreenchange", onFullscreen);

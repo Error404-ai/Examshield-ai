@@ -2,7 +2,7 @@
 ExamShield AI - Proctoring Routes
 Browser-side AI (MediaPipe) detects violations and reports short events here.
 Events are stored on the session document (sessions.proctoring_alerts).
-Admins review them per exam / per session and resolve student appeals.
+Admins review them per exam / per session.
 """
 
 import logging
@@ -15,9 +15,8 @@ from pymongo import ReturnDocument
 
 from app.core.database import get_db
 from app.core.security import get_current_user, require_role
-from app.core.utils import appeal_out, oid
+from app.core.utils import oid
 from app.models.schemas import AlertSeverity, SessionStatus
-from app.services.integrity_logic import derive_status, public_integrity
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,6 +25,9 @@ admin_only = require_role("admin")
 
 ONGOING = SessionStatus.ONGOING.value
 MAX_ALERTS_PER_SESSION = 500
+# Keep equal to MAX_TAB_SWITCHES in frontend/src/pages/Exam/ExamPage.tsx.
+# The server only flags the session; the browser performs the auto-submit.
+MAX_TAB_SWITCHES = 3
 
 EventType = Literal[
     "tab_switch",
@@ -47,11 +49,6 @@ class ProctoringEventIn(BaseModel):
     alert_type: EventType
     severity: AlertSeverity
     description: str = Field("", max_length=300)
-
-
-class AppealDecision(BaseModel):
-    decision: Literal["accepted", "rejected"]
-    note: str = Field("", max_length=1000)
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -98,13 +95,26 @@ async def log_event(
             "$inc": {f"proctoring_counts.{body.alert_type}": 1},
         },
         return_document=ReturnDocument.AFTER,
-        projection={"proctoring_counts": 1},
+        projection={"proctoring_counts": 1, "tab_limit_reached": 1},
     )
     if not session:
         raise HTTPException(status_code=404, detail="Active session not found")
 
     counts = session.get("proctoring_counts", {})
-    return {"success": True, "tab_switch_count": counts.get("tab_switch", 0)}
+    tab_count = counts.get("tab_switch", 0)
+    limit_reached = tab_count >= MAX_TAB_SWITCHES
+
+    # Record the breach once so the admin can see the limit was hit
+    if limit_reached and not session.get("tab_limit_reached"):
+        await db.sessions.update_one(
+            {"_id": session["_id"]}, {"$set": {"tab_limit_reached": True}}
+        )
+
+    return {
+        "success": True,
+        "tab_switch_count": tab_count,
+        "limit_reached": limit_reached,
+    }
 
 
 # ─── Admin: all sessions of one exam, with proctoring summary ────────────────
@@ -117,9 +127,7 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    sessions = await db.sessions.find(
-        {"exam_id": exam_id}, {"answers": 0, "draft_answers": 0}
-    ).to_list(None)
+    sessions = await db.sessions.find({"exam_id": exam_id}, {"answers": 0}).to_list(None)
 
     users = {}
     student_ids = list({s["student_id"] for s in sessions})
@@ -144,16 +152,13 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
             "total_marks": s.get("total_marks"),
             "percentage": s.get("percentage"),
             "passed": s.get("passed"),
-            "grading_status": s.get("grading_status", "done"),
-            "review_needed": bool(s.get("review_needed")),
             "started_at": _iso(s.get("started_at")),
             "submitted_at": _iso(s.get("submitted_at")),
             "total_alerts": len(alerts),
             "counts": s.get("proctoring_counts", {}),
+            "tab_limit_reached": bool(s.get("tab_limit_reached")),
             "suspicion_score": score,
             "recommendation": _recommendation(score),
-            "integrity_status": None if s.get("status") == ONGOING else derive_status(s),
-            "appeal": appeal_out(s.get("appeal")),
         })
 
     # Most suspicious first
@@ -166,7 +171,7 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
 
 @router.get("/sessions/{session_id}/alerts")
 async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(get_db)):
-    session = await db.sessions.find_one({"_id": oid(session_id)}, {"answers": 0, "draft_answers": 0})
+    session = await db.sessions.find_one({"_id": oid(session_id)})
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -189,37 +194,8 @@ async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(
         "student_email": (student or {}).get("email", ""),
         "total_alerts": len(alerts),
         "counts": session.get("proctoring_counts", {}),
+        "tab_limit_reached": bool(session.get("tab_limit_reached")),
         "suspicion_score": score,
         "recommendation": _recommendation(score),
-        "integrity_status": None if session.get("status") == ONGOING else derive_status(session),
-        "integrity": public_integrity(session.get("integrity") or {}, admin=True),
         "alerts": alerts,
-        "appeal": appeal_out(session.get("appeal")),
     }
-
-
-# ─── Admin: resolve a student's appeal ───────────────────────────────────────
-
-@router.put("/sessions/{session_id}/appeal")
-async def resolve_appeal(
-    session_id: str, body: AppealDecision, admin=Depends(admin_only), db=Depends(get_db)
-):
-    session = await db.sessions.find_one({"_id": oid(session_id)}, {"exam_id": 1})
-    owns = session and await db.exams.find_one(
-        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}, {"_id": 1}
-    )
-    if not owns:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    result = await db.sessions.update_one(
-        {"_id": session["_id"], "appeal.status": "pending"},
-        {"$set": {
-            "appeal.status": body.decision,
-            "appeal.admin_note": body.note.strip(),
-            "appeal.resolved_at": datetime.utcnow(),
-            "appeal.resolved_by": admin["user_id"],
-        }},
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=409, detail="No pending appeal on this session")
-    return {"success": True}

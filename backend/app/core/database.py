@@ -64,7 +64,7 @@ async def close_db():
 
 
 async def create_indexes():
-    """Create database indexes. Field names match what the routes actually store (snake_case)."""
+    """Create indexes. Field names match the documents (snake_case)."""
     try:
         # Users
         await db.users.create_index("email", unique=True)
@@ -76,10 +76,9 @@ async def create_indexes():
         # Questions
         await db.questions.create_index("exam_id")
 
-        # Sessions: resume/lookup per student+exam, review per exam, appeals badge
+        # Sessions (proctoring events live inside the session document)
         await db.sessions.create_index([("student_id", 1), ("exam_id", 1), ("status", 1)])
-        await db.sessions.create_index([("exam_id", 1), ("status", 1)])
-        await db.sessions.create_index([("exam_id", 1), ("appeal.status", 1)])
+        await db.sessions.create_index("exam_id")
 
         logger.info("Database indexes created")
     except Exception as e:
