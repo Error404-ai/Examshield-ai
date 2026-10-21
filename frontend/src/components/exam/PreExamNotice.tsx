@@ -18,6 +18,8 @@ import { MAX_TAB_SWITCHES, SIGNALS } from "../../services/policy";
 
 interface PreExamNoticeProps {
   exam: Exam;
+  /** True when the exam has short-answer or essay questions (they are scored by AI) */
+  hasWrittenAnswers?: boolean;
   starting: boolean;
   error?: string;
   onAccept: () => void;
@@ -33,6 +35,7 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
 
 export const PreExamNotice: React.FC<PreExamNoticeProps> = ({
   exam,
+  hasWrittenAnswers = false,
   starting,
   error,
   onAccept,
@@ -82,6 +85,15 @@ export const PreExamNotice: React.FC<PreExamNoticeProps> = ({
             If you leave the exam tab {MAX_TAB_SWITCHES} times, the exam ends and your answers are
             submitted automatically.
           </li>
+          {hasWrittenAnswers && (
+            <li>
+              Written answers (short answer and essay) are scored by an AI model, Google Gemini.
+              Your answer text is sent to it together with the question and the examiner's marking
+              guide. Its marks and a short comment appear on your result once grading finishes, and
+              your examiner can review and change any mark. Multiple-choice answers are marked
+              automatically against the answer key.
+            </li>
+          )}
           <li>
             Your marks come only from your answers. Proctoring events are combined into a suspicion
             score that your examiner sees as a recommendation. It is not an automatic verdict.

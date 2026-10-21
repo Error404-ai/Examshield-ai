@@ -3,6 +3,9 @@
  * One form for both routes:
  *   /admin/exams/new            -> create
  *   /admin/exams/:examId/edit   -> edit
+ *
+ * Question types: multiple choice (marked automatically) and short answer / essay
+ * (scored by AI against a model answer and optional marking guide, then reviewable).
  */
 
 import { PageHeader } from "../../components/common/PageHeader";
@@ -11,25 +14,42 @@ import { Button } from "../../components/common/Button";
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { adminService, Difficulty } from "../../services/examService";
-import { QuestionType } from "../../types";
+import { Question, QuestionType } from "../../types";
 import { getErrorMessage } from "../../utils";
 
 interface DraftQuestion {
   id?: string; // present for questions that already exist on the server
+  type: QuestionType;
   text: string;
-  options: string[];
-  correct: number;
+  options: string[]; // multiple choice only
+  correct: number; // multiple choice only
+  modelAnswer: string; // written only: the answer the AI marks against
+  rubric: string; // written only: optional marking guide
   marks: number;
   ai?: boolean; // drafted by the AI generator
   explanation?: string; // shown to the admin only, never stored
 }
 
+const isWrittenType = (t?: QuestionType) =>
+  t === QuestionType.SHORT_ANSWER || t === QuestionType.ESSAY;
+
+const isWritten = (q: Pick<DraftQuestion, "type">) => isWrittenType(q.type);
+
 const emptyQuestion = (): DraftQuestion => ({
+  type: QuestionType.MCQ,
   text: "",
   options: ["", "", "", ""],
   correct: 0,
+  modelAnswer: "",
+  rubric: "",
   marks: 1,
 });
+
+const QUESTION_KINDS: { type: QuestionType; label: string }[] = [
+  { type: QuestionType.MCQ, label: "Multiple choice" },
+  { type: QuestionType.SHORT_ANSWER, label: "Short answer" },
+  { type: QuestionType.ESSAY, label: "Essay" },
+];
 
 // Open, underline-style fields: no boxes around inputs
 const inputClass =
@@ -43,7 +63,8 @@ const darkInput =
 
 const darkLabel = "mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400";
 
-const isBlank = (q: DraftQuestion) => !q.text.trim() && q.options.every((o) => !o.trim());
+const isBlank = (q: DraftQuestion) =>
+  !q.text.trim() && !q.modelAnswer.trim() && q.options.every((o) => !o.trim());
 
 const DIFFICULTIES: { id: Difficulty; label: string }[] = [
   { id: "easy", label: "Easy" },
@@ -92,13 +113,17 @@ export const CreateExamPage: React.FC = () => {
         setQuestions(
           qs.length
             ? qs.map((q) => {
+                const written = isWrittenType(q.question_type);
                 const opts = q.options?.length ? q.options : ["", "", "", ""];
                 const idx = opts.indexOf(q.correct_answer ?? "");
                 return {
                   id: q._id,
+                  type: q.question_type ?? QuestionType.MCQ,
                   text: q.question_text,
                   options: opts,
                   correct: idx >= 0 ? idx : 0,
+                  modelAnswer: written ? q.correct_answer ?? "" : "",
+                  rubric: (q as Question & { rubric?: string }).rubric ?? "",
                   marks: q.marks,
                 };
               })
@@ -145,9 +170,12 @@ export const CreateExamPage: React.FC = () => {
         context: aiContext.trim() || undefined,
       });
       const drafts: DraftQuestion[] = generated.map((g) => ({
+        type: QuestionType.MCQ,
         text: g.question_text,
         options: g.options,
         correct: g.correct_index,
+        modelAnswer: "",
+        rubric: "",
         marks: 1,
         ai: true,
         explanation: g.explanation,
@@ -171,20 +199,33 @@ export const CreateExamPage: React.FC = () => {
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       if (!q.text.trim()) return `Question ${i + 1} is empty`;
-      if (q.options.some((o) => !o.trim())) return `Fill all options in question ${i + 1}`;
+      if (isWritten(q)) {
+        if (!q.modelAnswer.trim()) return `Add a model answer for question ${i + 1}`;
+      } else if (q.options.some((o) => !o.trim())) {
+        return `Fill all options in question ${i + 1}`;
+      }
       if (q.marks < 1) return `Question ${i + 1} needs at least 1 mark`;
     }
     return "";
   };
 
-  const questionPayload = (examIdValue: string, q: DraftQuestion) => ({
-    exam_id: examIdValue,
-    question_text: q.text.trim(),
-    question_type: QuestionType.MCQ,
-    options: q.options.map((o) => o.trim()),
-    correct_answer: q.options[q.correct].trim(),
-    marks: q.marks,
-  });
+  const questionPayload = (examIdValue: string, q: DraftQuestion) => {
+    const base = {
+      exam_id: examIdValue,
+      question_text: q.text.trim(),
+      question_type: q.type,
+      marks: q.marks,
+    };
+    if (isWritten(q)) {
+      // The model answer is stored as correct_answer; the rubric is optional
+      return { ...base, correct_answer: q.modelAnswer.trim(), rubric: q.rubric.trim() || undefined };
+    }
+    return {
+      ...base,
+      options: q.options.map((o) => o.trim()),
+      correct_answer: q.options[q.correct].trim(),
+    };
+  };
 
   const saveQuestionUpdate = async (questionId: string, payload: ReturnType<typeof questionPayload>) => {
     const service = adminService as typeof adminService & {
@@ -487,26 +528,79 @@ export const CreateExamPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid gap-x-10 gap-y-1 md:grid-cols-2">
-                  {q.options.map((opt, oi) => (
-                    <div key={oi} className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name={`correct-${qi}`}
-                        checked={q.correct === oi}
-                        onChange={() => updateQuestion(qi, { correct: oi })}
-                        title="Mark as correct answer"
-                        className="h-4 w-4 shrink-0 accent-indigo-600"
-                      />
-                      <input
-                        className={inputClass}
-                        placeholder={`Option ${oi + 1}`}
-                        value={opt}
-                        onChange={(e) => updateOption(qi, oi, e.target.value)}
-                      />
-                    </div>
+                {/* Question type */}
+                <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Question type">
+                  {QUESTION_KINDS.map((k) => (
+                    <button
+                      key={k.type}
+                      type="button"
+                      aria-pressed={q.type === k.type}
+                      onClick={() => updateQuestion(qi, { type: k.type })}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        q.type === k.type
+                          ? "bg-indigo-600 text-white"
+                          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                      }`}
+                    >
+                      {k.label}
+                    </button>
                   ))}
                 </div>
+
+                {isWritten(q) ? (
+                  <div className="flex flex-col gap-5">
+                    <div>
+                      <label className={labelClass}>Model answer</label>
+                      <textarea
+                        className={`${inputClass} resize-none`}
+                        rows={q.type === QuestionType.ESSAY ? 5 : 3}
+                        placeholder="What a full-marks answer says. The AI marks against this."
+                        value={q.modelAnswer}
+                        onChange={(e) => updateQuestion(qi, { modelAnswer: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>
+                        Marking guide{" "}
+                        <span className="normal-case tracking-normal text-gray-400">(optional)</span>
+                      </label>
+                      <textarea
+                        className={`${inputClass} resize-none`}
+                        rows={3}
+                        maxLength={2000}
+                        placeholder="e.g. 1 mark for defining a stack, 1 for push and pop, 1 for an example"
+                        value={q.rubric}
+                        onChange={(e) => updateQuestion(qi, { rubric: e.target.value })}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Written answers are scored by AI after the student submits, and you can change any
+                      mark afterwards. Students see the model answer on their result, but never the
+                      marking guide.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-x-10 gap-y-1 md:grid-cols-2">
+                    {q.options.map((opt, oi) => (
+                      <div key={oi} className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name={`correct-${qi}`}
+                          checked={q.correct === oi}
+                          onChange={() => updateQuestion(qi, { correct: oi })}
+                          title="Mark as correct answer"
+                          className="h-4 w-4 shrink-0 accent-indigo-600"
+                        />
+                        <input
+                          className={inputClass}
+                          placeholder={`Option ${oi + 1}`}
+                          value={opt}
+                          onChange={(e) => updateOption(qi, oi, e.target.value)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-500">
                   <label className="flex items-center gap-2">
@@ -519,7 +613,9 @@ export const CreateExamPage: React.FC = () => {
                       onChange={(e) => updateQuestion(qi, { marks: Number(e.target.value) })}
                     />
                   </label>
-                  <span className="text-xs">Select the radio button next to the correct option</span>
+                  {!isWritten(q) && (
+                    <span className="text-xs">Select the radio button next to the correct option</span>
+                  )}
                 </div>
 
                 {q.explanation && (

@@ -7,6 +7,7 @@
 
 import api from "./api";
 import { AlertSeverity } from "../types";
+import type { IntegrityInfo, IntegrityStatus } from "./integrityService";
 
 type Appeal = Record<string, unknown>;
 
@@ -38,12 +39,15 @@ export interface SessionSummary {
   total_marks: number | null;
   percentage: number | null;
   passed: boolean | null;
+  grading_status?: "pending" | "done" | "failed";
+  review_needed?: boolean;
   started_at: string | null;
   submitted_at: string | null;
   total_alerts: number;
   counts: Record<string, number>;
   suspicion_score: number;
   recommendation: Recommendation;
+  integrity_status: IntegrityStatus | null;
   appeal: Appeal | null;
 }
 
@@ -63,6 +67,8 @@ export interface SessionAlertsDetail {
   counts: Record<string, number>;
   suspicion_score: number;
   recommendation: Recommendation;
+  integrity_status: IntegrityStatus | null;
+  integrity: IntegrityInfo;
   alerts: ProctorAlertRow[];
   appeal: Appeal | null;
 }

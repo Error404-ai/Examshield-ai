@@ -80,7 +80,12 @@ export const ExamResultsPage: React.FC = () => {
           </thead>
           <tbody className="divide-y divide-gray-200">
             {data.results.map((r) => (
-              <tr key={r._id}>
+              <tr
+                key={r._id}
+                onClick={() => navigate(`/admin/sessions/${r._id}/review`)}
+                className="cursor-pointer hover:bg-gray-50"
+                title="Review this attempt"
+              >
                 <td className="px-4 py-3">
                   <p className="font-medium text-gray-900">{r.student_name}</p>
                   <p className="text-xs text-gray-500">{r.student_email}</p>

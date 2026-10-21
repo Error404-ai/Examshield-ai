@@ -21,7 +21,7 @@ import { MAX_TAB_SWITCHES } from "../../services/policy";
 import { ProctoringOverlay } from "../../components/proctoring/ProctoringOverlay";
 import { useExamTimer } from "../../hooks/useExamTimer";
 import { useProctoring } from "../../hooks/useProctoring";
-import { Exam, Question, StudentAnswer } from "../../types";
+import { Exam, Question, QuestionType, StudentAnswer } from "../../types";
 import { getErrorMessage } from "../../utils";
 
 // ─── Constants & helpers ─────────────────────────────────────────────────────
@@ -38,7 +38,10 @@ const localKey = (sessionId: string) => `examshield:answers:${sessionId}`;
 const readLocalAnswers = (sessionId: string): Record<string, string> => {
   try {
     const parsed = JSON.parse(localStorage.getItem(localKey(sessionId)) || "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    );
   } catch {
     return {};
   }
@@ -482,16 +485,17 @@ export const ExamPage: React.FC = () => {
   const [loadError, setLoadError] = useState("");
   const [startError, setStartError] = useState("");
   const [starting, setStarting] = useState(false);
-  const loadedRef = useRef(false); // guards React StrictMode's double effect
-
   // Load the exam only. The session (and its timer) starts after the student accepts the notice.
   useEffect(() => {
-    if (!examId || loadedRef.current) return;
-    loadedRef.current = true;
+    if (!examId) return;
+    let active = true;
+    setContent(null);
+    setLoadError("");
     studentService
       .getExam(examId)
-      .then(setContent)
-      .catch((err) => setLoadError(getErrorMessage(err)));
+      .then((result) => { if (active) setContent(result); })
+      .catch((err) => { if (active) setLoadError(getErrorMessage(err)); });
+    return () => { active = false; };
   }, [examId]);
 
   const handleAccept = async () => {
@@ -509,10 +513,9 @@ export const ExamPage: React.FC = () => {
       setSession({
         sessionId: s.session_id,
         remaining: s.remaining_seconds, // server clock, so a wrong device clock can't change the timer
-        resumed: s.resumed,
-        savedAnswers: s.saved_answers ?? {},
-        tabSwitches:
-          (s as typeof s & { tab_switch_count?: number }).tab_switch_count ?? 0,
+        resumed: Object.keys(s.draft_answers ?? {}).length > 0 || (s.tab_switch_count ?? 0) > 0,
+        savedAnswers: s.draft_answers ?? {},
+        tabSwitches: s.tab_switch_count ?? 0,
       });
     } catch (err) {
       setStartError(getErrorMessage(err));
@@ -552,6 +555,10 @@ export const ExamPage: React.FC = () => {
     return (
       <PreExamNotice
         exam={content.exam}
+        hasWrittenAnswers={content.questions.some(
+          (q) =>
+            q.question_type === QuestionType.SHORT_ANSWER || q.question_type === QuestionType.ESSAY
+        )}
         starting={starting}
         error={startError}
         onAccept={handleAccept}

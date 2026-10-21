@@ -17,6 +17,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user, require_role
 from app.core.utils import appeal_out, oid
 from app.models.schemas import AlertSeverity, SessionStatus
+from app.services.integrity_logic import derive_status, public_integrity
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -143,12 +144,15 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
             "total_marks": s.get("total_marks"),
             "percentage": s.get("percentage"),
             "passed": s.get("passed"),
+            "grading_status": s.get("grading_status", "done"),
+            "review_needed": bool(s.get("review_needed")),
             "started_at": _iso(s.get("started_at")),
             "submitted_at": _iso(s.get("submitted_at")),
             "total_alerts": len(alerts),
             "counts": s.get("proctoring_counts", {}),
             "suspicion_score": score,
             "recommendation": _recommendation(score),
+            "integrity_status": None if s.get("status") == ONGOING else derive_status(s),
             "appeal": appeal_out(s.get("appeal")),
         })
 
@@ -187,6 +191,8 @@ async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(
         "counts": session.get("proctoring_counts", {}),
         "suspicion_score": score,
         "recommendation": _recommendation(score),
+        "integrity_status": None if session.get("status") == ONGOING else derive_status(session),
+        "integrity": public_integrity(session.get("integrity") or {}, admin=True),
         "alerts": alerts,
         "appeal": appeal_out(session.get("appeal")),
     }

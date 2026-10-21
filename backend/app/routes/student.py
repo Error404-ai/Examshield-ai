@@ -4,6 +4,11 @@ Matches frontend studentService (services/examService.ts).
 Grading is done server-side; correct answers never leave the server
 until the session is submitted.
 
+Grading: multiple-choice and true/false answers are marked at once. Written
+answers (short answer / essay) are saved as grading="pending" and scored by AI in
+the background (services/grading_service.py); the result shows grading_status
+until that finishes.
+
 Recovery: answers are autosaved to the session (draft_answers), so a refresh
 or a dropped connection does not lose work. The draft is deleted on submit.
 
@@ -14,12 +19,10 @@ Privacy: students see the proctoring events recorded for their own attempt
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from bson import ObjectId
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pymongo import ReturnDocument
 
-from typing import Dict
-from bson import ObjectId
-from pydantic import BaseModel, Field
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.utils import appeal_out, clean, oid
@@ -30,6 +33,7 @@ from app.models.schemas import (
     SessionSubmit,
     StartIn,
 )
+from app.services.grading_service import WRITTEN_TYPES, grade_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -38,12 +42,9 @@ ONGOING = SessionStatus.ONGOING.value
 DONE = [SessionStatus.SUBMITTED.value, SessionStatus.EXPIRED.value]
 LATE_GRACE_SECONDS = 60
 
-
 MAX_DRAFT_ANSWERS = 500
 MAX_ANSWER_CHARS = 20000
 
-class DraftAnswers(BaseModel):
-      answers: Dict[str, str] = Field(default_factory=dict)
 # Fields that never go to the student
 _PRIVATE_FIELDS = (
     "draft_answers",
@@ -51,7 +52,12 @@ _PRIVATE_FIELDS = (
     "expires_at",
     "consented_at",
     "proctoring_counts",
+    "review_needed",
+    "grading_error",
 )
+
+# Per-answer fields that stay with the examiner
+_PRIVATE_ANSWER_FIELDS = ("confidence", "needs_review", "reviewed_by")
 
 
 def _student_view(session: dict) -> dict:
@@ -59,6 +65,11 @@ def _student_view(session: dict) -> dict:
     row = clean(session)
     for key in _PRIVATE_FIELDS:
         row.pop(key, None)
+    if "answers" in row:
+        row["answers"] = [
+            {k: v for k, v in a.items() if k not in _PRIVATE_ANSWER_FIELDS}
+            for a in row["answers"]
+        ]
     row["integrity_events"] = row.pop("proctoring_alerts", [])
     row["appeal"] = appeal_out(session.get("appeal"))
     return row
@@ -118,6 +129,7 @@ async def get_exam_details(exam_id: str, user=Depends(get_current_user), db=Depe
     for q in questions:
         q = clean(q)
         q.pop("correct_answer", None)  # never send answers before submission
+        q.pop("rubric", None)          # the marking guide stays on the server too
         safe.append(q)
     return {"success": True, "exam": clean(exam), "questions": safe}
 
@@ -178,7 +190,12 @@ async def save_draft(
     if len(body.answers) > MAX_DRAFT_ANSWERS:
         raise HTTPException(status_code=400, detail="Too many answers")
 
-    drafts = {a.question_id: a.selected_answer[:MAX_ANSWER_CHARS] for a in body.answers}
+    # Only real question ids become keys in the saved document
+    drafts = {
+        a.question_id: a.selected_answer[:MAX_ANSWER_CHARS]
+        for a in body.answers
+        if ObjectId.is_valid(a.question_id)
+    }
     now = datetime.utcnow()
     result = await db.sessions.update_one(
         {
@@ -195,7 +212,12 @@ async def save_draft(
 
 
 @router.post("/sessions/submit")
-async def submit_session(payload: SessionSubmit, user=Depends(get_current_user), db=Depends(get_db)):
+async def submit_session(
+    payload: SessionSubmit,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+    db=Depends(get_db),
+):
     sid = user["user_id"]
     session = await db.sessions.find_one({"_id": oid(payload.session_id), "student_id": sid})
     if not session:
@@ -215,27 +237,41 @@ async def submit_session(payload: SessionSubmit, user=Depends(get_current_user),
     }
 
     score, total, graded = 0, 0, []
+    needs_ai = False
     for q in questions:
         qid = str(q["_id"])
         marks = q.get("marks", 1)
+        qtype = q.get("question_type", "mcq")
         selected = given.get(qid, "")
-        correct = bool(selected) and selected.strip().lower() == q["correct_answer"].strip().lower()
         total += marks
-        score += marks if correct else 0
-        graded.append({
+
+        entry = {
             "question_id": qid,
+            "question_type": qtype,
             "question_text": q.get("question_text", ""),
             "selected_answer": selected,
             "correct_answer": q["correct_answer"],
-            "is_correct": correct,
             "marks": marks,
-            "marks_awarded": marks if correct else 0,
-        })
+        }
+
+        if qtype in WRITTEN_TYPES:
+            # Scored by AI after submit. A blank answer needs no AI: it is simply 0.
+            if selected.strip():
+                entry.update(is_correct=False, marks_awarded=0, grading="pending")
+                needs_ai = True
+            else:
+                entry.update(is_correct=False, marks_awarded=0, grading="none")
+        else:
+            correct = bool(selected) and selected.strip().lower() == q["correct_answer"].strip().lower()
+            score += marks if correct else 0
+            entry.update(is_correct=correct, marks_awarded=marks if correct else 0, grading="none")
+
+        graded.append(entry)
 
     now = datetime.utcnow()
     late = now > session["expires_at"] + timedelta(seconds=LATE_GRACE_SECONDS)
     percentage = round(score / total * 100, 2) if total else 0
-    passed = score >= exam.get("passing_marks", 0)
+    passed = score >= exam.get("passing_marks", 0)  # provisional while written answers are pending
 
     result = {
         "status": SessionStatus.EXPIRED.value if late else SessionStatus.SUBMITTED.value,
@@ -245,6 +281,8 @@ async def submit_session(payload: SessionSubmit, user=Depends(get_current_user),
         "passed": passed,
         "answers": graded,
         "submitted_at": now,
+        "grading_status": "pending" if needs_ai else "done",
+        "review_needed": False,
     }
     # Only flips an ongoing session, so a double-click can't grade twice.
     # The draft has served its purpose, so it is removed.
@@ -255,6 +293,9 @@ async def submit_session(payload: SessionSubmit, user=Depends(get_current_user),
     if updated.matched_count == 0:
         raise HTTPException(status_code=400, detail="This exam was already submitted")
 
+    if needs_ai:
+        background_tasks.add_task(grade_session, db, session["_id"])
+
     return {
         "success": True,
         "result": {
@@ -263,6 +304,7 @@ async def submit_session(payload: SessionSubmit, user=Depends(get_current_user),
             "percentage": percentage,
             "passed": passed,
             "passing_marks": exam.get("passing_marks", 0),
+            "grading_pending": needs_ai,
         },
     }
 

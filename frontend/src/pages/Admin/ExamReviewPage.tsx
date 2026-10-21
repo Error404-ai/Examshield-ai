@@ -278,14 +278,21 @@ export const ExamReviewPage: React.FC = () => {
                         {getSessionStatusLabel(s.status as SessionStatus)}
                       </td>
                       <td className="px-4 py-3 text-gray-700">
-                        {s.percentage !== null ? (
-                          <>
-                            {s.score}/{s.total_marks}{" "}
-                            <span className="text-xs text-gray-500">({s.percentage.toFixed(1)}%)</span>
-                          </>
-                        ) : (
-                          "—"
-                        )}
+                        <div className="flex flex-col gap-1">
+                          {s.percentage !== null ? (
+                            <span>
+                              {s.score}/{s.total_marks}{" "}
+                              <span className="text-xs text-gray-500">({s.percentage.toFixed(1)}%)</span>
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                          {s.grading_status === "pending" && <Badge variant="info">AI grading…</Badge>}
+                          {s.grading_status === "failed" && <Badge variant="error">Grading failed</Badge>}
+                          {s.grading_status === "done" && s.review_needed && (
+                            <Badge variant="warning">Check written answers</Badge>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1">
@@ -329,6 +336,15 @@ export const ExamReviewPage: React.FC = () => {
                         <p className="text-sm text-gray-500">{detail.student_email}</p>
                       </div>
                       <div className="flex items-center gap-3">
+                        {detail.integrity_status !== null && (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/admin/sessions/${selectedId}/review`)}
+                            className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                          >
+                            Review answers
+                          </button>
+                        )}
                         <RiskBar score={detail.suspicion_score} rec={detail.recommendation} />
                         <RiskBadge rec={detail.recommendation} />
                       </div>

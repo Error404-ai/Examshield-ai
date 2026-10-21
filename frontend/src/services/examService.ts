@@ -170,15 +170,20 @@ export const studentService = {
     duration_minutes: number;
     started_at: string;
     remaining_seconds: number;
-    resumed: boolean;
-    saved_answers: Record<string, string>;
+    draft_answers: Record<string, string>;
+    tab_switch_count: number;
   }> {
-    const { data } = await api.post(`/student/exams/${examId}/start`);
+    const { data } = await api.post(`/student/exams/${examId}/start`, { consent: true });
     return data;
   },
 
   async saveAnswers(sessionId: string, answers: Record<string, string>): Promise<void> {
-    await api.put(`/student/sessions/${sessionId}/answers`, { answers });
+    await api.put(`/student/sessions/${sessionId}/answers`, {
+      answers: Object.entries(answers).map(([question_id, selected_answer]) => ({
+        question_id,
+        selected_answer,
+      })),
+    });
   },
 
   /** Autosave the current answers (replaces the previous draft) */

@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
@@ -17,6 +17,7 @@ from app.core.security import require_role
 from app.core.utils import appeal_out, oid, clean
 from app.models.schemas import ExamUpdate, QuestionCreate, SessionStatus
 from app.services.ai_service import AIGenerationError, AIUnavailable, generate_questions
+from app.services.grading_service import OPEN_STATES, WRITTEN_TYPES, compute_totals, grade_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -42,6 +43,11 @@ class GenerateIn(BaseModel):
     count: int = Field(5, ge=1, le=15)
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     context: str = Field("", max_length=6000)
+
+
+class GradeAnswerIn(BaseModel):
+    marks: float = Field(..., ge=0)
+    note: str = Field("", max_length=500)
 
 
 def _check_gen_rate(admin_id: str) -> None:
@@ -70,6 +76,120 @@ async def _sync_total_marks(db, exam_id: str) -> None:
     ]).to_list(1)
     total = rows[0]["total"] if rows else 0
     await db.exams.update_one({"_id": oid(exam_id)}, {"$set": {"total_marks": total}})
+
+
+@router.get("/sessions/{session_id}/review")
+async def review_session(session_id: str, admin=Depends(admin_only), db=Depends(get_db)):
+    session = await db.sessions.find_one({"_id": oid(session_id)})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    exam = await db.exams.find_one(
+        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}
+    )
+    if not exam:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.get("status") == SessionStatus.ONGOING.value:
+        raise HTTPException(status_code=409, detail="This attempt has not been submitted")
+
+    student = await db.users.find_one({"_id": oid(session["student_id"])}, {"name": 1, "email": 1}) or {}
+    answer_ids = [oid(a["question_id"]) for a in session.get("answers", []) if a.get("question_id")]
+    questions = {}
+    if answer_ids:
+        async for question in db.questions.find({"_id": {"$in": answer_ids}}):
+            questions[str(question["_id"])] = question
+
+    answers = []
+    for answer in session.get("answers", []):
+        row = dict(answer)
+        question = questions.get(answer.get("question_id"), {})
+        row.setdefault("question_type", question.get("question_type", ""))
+        row.setdefault("question_text", question.get("question_text", ""))
+        row.setdefault("correct_answer", question.get("correct_answer", ""))
+        row["rubric"] = question.get("rubric", "")
+        answers.append(row)
+
+    result = clean(session)
+    result.update(
+        exam_title=exam.get("title", "Deleted exam"),
+        student_name=student.get("name", "Unknown"),
+        student_email=student.get("email", ""),
+        answers=answers,
+    )
+    return {"success": True, "session": result}
+
+
+@router.put("/sessions/{session_id}/answers/{question_id}/grade")
+async def grade_answer(
+    session_id: str,
+    question_id: str,
+    body: GradeAnswerIn,
+    admin=Depends(admin_only),
+    db=Depends(get_db),
+):
+    session = await db.sessions.find_one({"_id": oid(session_id)})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    exam = await db.exams.find_one(
+        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}
+    )
+    if not exam:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.get("status") == SessionStatus.ONGOING.value:
+        raise HTTPException(status_code=409, detail="This attempt has not been submitted")
+
+    answer = next((a for a in session.get("answers", []) if a.get("question_id") == question_id), None)
+    if not answer:
+        raise HTTPException(status_code=404, detail="Answer not found")
+    if answer.get("question_type") not in WRITTEN_TYPES:
+        raise HTTPException(status_code=400, detail="Only written answers can be manually graded")
+    if body.marks > answer.get("marks", 0):
+        raise HTTPException(status_code=422, detail="Marks cannot exceed the question maximum")
+
+    answer.update(
+        marks_awarded=body.marks,
+        is_correct=body.marks >= answer.get("marks", 0),
+        grading="manual",
+        examiner_note=body.note.strip(),
+        needs_review=False,
+    )
+    has_open = any(a.get("grading") in OPEN_STATES for a in session.get("answers", []))
+    fields = {
+        "answers": session["answers"],
+        **compute_totals(session["answers"], exam.get("passing_marks", 0)),
+        "grading_status": "failed" if has_open else "done",
+        "grading_error": session.get("grading_error", "") if has_open else "",
+        "review_needed": any(a.get("needs_review") for a in session["answers"]),
+    }
+    await db.sessions.update_one({"_id": session["_id"]}, {"$set": fields})
+    return {"success": True, **{k: fields[k] for k in ("score", "total_marks", "percentage", "passed", "grading_status")}}
+
+
+@router.post("/sessions/{session_id}/regrade")
+async def regrade_session(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    admin=Depends(admin_only),
+    db=Depends(get_db),
+):
+    session = await db.sessions.find_one({"_id": oid(session_id)})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    exam = await db.exams.find_one(
+        {"_id": oid(session["exam_id"]), "created_by": admin["user_id"]}
+    )
+    if not exam:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.get("status") == SessionStatus.ONGOING.value:
+        raise HTTPException(status_code=409, detail="This attempt has not been submitted")
+    if session.get("grading_status") != "failed":
+        raise HTTPException(status_code=409, detail="Only failed grading can be retried")
+
+    await db.sessions.update_one(
+        {"_id": session["_id"], "grading_status": "failed"},
+        {"$set": {"grading_status": "pending", "grading_error": ""}},
+    )
+    background_tasks.add_task(grade_session, db, session["_id"])
+    return {"success": True, "grading_status": "pending"}
 
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────
