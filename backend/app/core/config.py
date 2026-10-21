@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     BCRYPT_ROUNDS: int = 12
     HASHING_ALGORITHM: str = "bcrypt"
     ACCESS_TOKEN_LIFETIME: int = 3600  # 1 hour
+    RATE_LIMIT_ENABLED: bool = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
 
     @property
     def all_cors_origins(self) -> List[str]:

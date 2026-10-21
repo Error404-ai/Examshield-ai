@@ -126,6 +126,8 @@ function classify(res: FaceLandmarkerResult): FaceStatus {
 export interface ProctoringOptions {
   /** Auto-end the exam when the student has left the tab this many times (e.g. 3) */
   maxTabSwitches?: number;
+  /** Number of tab switches already recorded for this session */
+  initialTabSwitchCount?: number;
   /** Called once when the limit is reached; the exam page should submit the exam here */
   onTabLimit?: () => void;
 }
@@ -150,7 +152,7 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
   // Latest options without re-creating listeners (the callback closes over fresh answers)
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  const tabCountRef = useRef(0);
+  const tabCountRef = useRef(options.initialTabSwitchCount ?? 0);
   const tabLimitFiredRef = useRef(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -176,7 +178,7 @@ export function useProctoring(sessionId: string, options: ProctoringOptions = {}
   const [phoneDetectorState, setPhoneDetectorState] = useState<ModelState>("idle");
   const [faceStatus, setFaceStatus] = useState<FaceStatus>("idle");
   const [alerts, setAlerts] = useState<BehaviorAlert[]>([]);
-  const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [tabSwitchCount, setTabSwitchCount] = useState(options.initialTabSwitchCount ?? 0);
   const [isFullscreen, setIsFullscreen] = useState(
     typeof document !== "undefined" && !!document.fullscreenElement
   );

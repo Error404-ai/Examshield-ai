@@ -162,10 +162,8 @@ export const studentService = {
 
   /**
    * Starts the session, or resumes the ongoing one. The backend requires consent.
-   * `consent` defaults to true only so the current ExamPage keeps working until
-   * the pre-exam notice (next step) passes it explicitly from its "Begin" button.
    */
-    async startSession(examId: string): Promise<{
+  async startSession(examId: string, consent: boolean): Promise<{
     session_id: string;
     duration_minutes: number;
     started_at: string;
@@ -173,7 +171,7 @@ export const studentService = {
     draft_answers: Record<string, string>;
     tab_switch_count: number;
   }> {
-    const { data } = await api.post(`/student/exams/${examId}/start`, { consent: true });
+    const { data } = await api.post(`/student/exams/${examId}/start`, { consent });
     return data;
   },
 

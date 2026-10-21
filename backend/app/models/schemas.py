@@ -141,6 +141,7 @@ class QuestionCreate(BaseModel):
     options: Optional[List[str]] = None
     correct_answer: str
     marks: int = Field(..., gt=0)
+    rubric: Optional[str] = Field(None, max_length=4000)
 
     @validator("options")
     def validate_options(cls, v, values):

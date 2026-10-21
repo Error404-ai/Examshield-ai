@@ -67,7 +67,6 @@ the backend API base URL, including `/api`.
 Run the backend tests from `backend`:
 
 ```powershell
-$env:DEBUG = "true"
 python -m pytest
 ```
 
@@ -85,6 +84,9 @@ npm run build
 - Set `FRONTEND_URL` and, if needed, `EXTRA_CORS_ORIGINS` /
   `EXTRA_ALLOWED_HOSTS` to match the deployed frontend and backend hosts.
 - Configure `GEMINI_API_KEY` only if AI question generation is needed.
+- General API rate limits are enabled by default. `RATE_LIMIT_ENABLED=false`
+  disables the in-memory limiter and should only be used for testing; for
+  multi-instance deployments, use a shared rate-limit store.
 - AI question generation is limited to 20 requests per admin per fixed
   one-hour window. Its MongoDB counter is shared by backend instances and
   expires through a TTL index.

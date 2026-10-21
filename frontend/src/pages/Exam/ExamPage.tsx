@@ -19,10 +19,12 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { studentService } from "../../services/examService";
 import { QuestionCard } from "../../components/exam/QuestionCard";
+import { PreExamNotice } from "../../components/exam/PreExamNotice";
 import { ProctoringOverlay } from "../../components/proctoring/ProctoringOverlay";
 import { Button } from "../../components/common/Button";
 import { useExamTimer } from "../../hooks/useExamTimer";
 import { useProctoring } from "../../hooks/useProctoring";
+import { clearLocalDraft, readLocalDraft, useDraftSync } from "../../hooks/useDraftSync";
 import { Exam, Question, StudentAnswer } from "../../types";
 import { getErrorMessage } from "../../utils";
 
@@ -39,12 +41,21 @@ interface RunnerProps {
   questions: Question[];
   sessionId: string;
   remainingSeconds: number;
+  initialAnswers: Record<string, string>;
+  initialTabSwitchCount: number;
 }
 
-const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remainingSeconds }) => {
+const ExamRunner: React.FC<RunnerProps> = ({
+  exam,
+  questions,
+  sessionId,
+  remainingSeconds,
+  initialAnswers,
+  initialTabSwitchCount,
+}) => {
   const navigate = useNavigate();
   const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers);
   const [started, setStarted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -65,6 +76,7 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
           selected_answer,
         })),
       });
+      clearLocalDraft(sessionId);
       navigate(`/student/results/${sessionId}`, { replace: true });
     } catch (err) {
       submittedRef.current = false;
@@ -74,6 +86,7 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
     }
   }, [sessionId, navigate]);
 
+  const { state: draftSyncState } = useDraftSync(sessionId, answers, !submitting);
   const { timeLeft, formattedTime } = useExamTimer(remainingSeconds, submit);
 
   const {
@@ -89,7 +102,11 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
     fullscreenSupported,
     isFullscreen,
     enterFullscreen,
-  } = useProctoring(sessionId, { maxTabSwitches: MAX_TAB_SWITCHES, onTabLimit: submit });
+  } = useProctoring(sessionId, {
+    maxTabSwitches: MAX_TAB_SWITCHES,
+    initialTabSwitchCount,
+    onTabLimit: submit,
+  });
 
   // Must run inside a click handler: browsers only allow fullscreen from one
   const handleStart = async () => {
@@ -163,7 +180,7 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
 
             {!started ? (
               <div className="my-auto border-t border-gray-300 pt-10">
-                <h2 className="font-display text-2xl font-semibold text-gray-900">Before you begin</h2>
+                <h2 className="font-display text-2xl font-semibold text-gray-900">Set up your camera</h2>
                 <p className="mt-3 max-w-xl text-base leading-relaxed text-gray-600">
                   This exam is proctored. When you start, it opens in fullscreen and your camera turns on. Video
                   stays on your device and only short event records are sent. Leaving the tab or fullscreen is
@@ -189,9 +206,11 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
                     </dd>
                   </div>
                 </dl>
-                <p className="mt-6 text-sm text-gray-600">Your timer has already started.</p>
+                <p className="mt-6 text-sm text-gray-600">
+                  Your timer started when you accepted the pre-exam notice. Your saved answers are restored.
+                </p>
                 <Button className="mt-4" size="lg" onClick={handleStart}>
-                  Start exam
+                  Continue to exam
                 </Button>
               </div>
             ) : !cameraReady ? (
@@ -263,6 +282,18 @@ const ExamRunner: React.FC<RunnerProps> = ({ exam, questions, sessionId, remaini
             tabSwitchCount={tabSwitchCount}
             maxTabSwitches={MAX_TAB_SWITCHES}
           />
+          <p
+            role="status"
+            aria-live="polite"
+            className={`-mt-6 text-xs ${
+              draftSyncState === "error" ? "text-amber-700" : "text-gray-500"
+            }`}
+          >
+            {draftSyncState === "saving" && "Saving answers…"}
+            {draftSyncState === "saved" && "Answers saved"}
+            {draftSyncState === "offline" && "Offline — answers are saved on this device."}
+            {draftSyncState === "error" && "Could not sync answers. Your latest answers are saved on this device."}
+          </p>
 
           <div>
             <div className="mb-3 flex items-baseline justify-between">
@@ -335,13 +366,21 @@ export const ExamPage: React.FC = () => {
   const { examId } = useParams<{ examId: string }>();
   const navigate = useNavigate();
 
-  const [data, setData] = useState<{
+  const [examData, setExamData] = useState<{
+    exam: Exam;
+    questions: Question[];
+  } | null>(null);
+  const [sessionData, setSessionData] = useState<{
     exam: Exam;
     questions: Question[];
     sessionId: string;
     remaining: number;
+    initialAnswers: Record<string, string>;
+    initialTabSwitchCount: number;
   } | null>(null);
   const [error, setError] = useState("");
+  const [startError, setStartError] = useState("");
+  const [starting, setStarting] = useState(false);
   const startedRef = useRef(false); // guards React StrictMode's double effect
 
   useEffect(() => {
@@ -351,23 +390,36 @@ export const ExamPage: React.FC = () => {
     (async () => {
       try {
         const { exam, questions } = await studentService.getExam(examId);
-        const session = await studentService.startSession(examId);
-
-        const startedAt = new Date(session.started_at).getTime();
-        const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-        const remaining = Math.max(0, session.duration_minutes * 60 - elapsedSeconds);
-
-        setData({
+        setExamData({
           exam,
           questions,
-          sessionId: session.session_id,
-          remaining,
         });
       } catch (err) {
         setError(getErrorMessage(err));
       }
     })();
   }, [examId]);
+
+  const beginExam = async (consent: boolean) => {
+    if (!examId || !examData || starting || !consent) return;
+    setStarting(true);
+    setStartError("");
+    try {
+      const session = await studentService.startSession(examId, consent);
+      const localAnswers = readLocalDraft(session.session_id);
+      setSessionData({
+        ...examData,
+        sessionId: session.session_id,
+        remaining: session.remaining_seconds,
+        initialAnswers: { ...session.draft_answers, ...localAnswers },
+        initialTabSwitchCount: session.tab_switch_count,
+      });
+    } catch (err) {
+      setStartError(getErrorMessage(err));
+    } finally {
+      setStarting(false);
+    }
+  };
 
   if (error) {
     return (
@@ -380,7 +432,20 @@ export const ExamPage: React.FC = () => {
     );
   }
 
-  if (!data) {
+  if (sessionData) {
+    return (
+      <ExamRunner
+        exam={sessionData.exam}
+        questions={sessionData.questions}
+        sessionId={sessionData.sessionId}
+        remainingSeconds={sessionData.remaining}
+        initialAnswers={sessionData.initialAnswers}
+        initialTabSwitchCount={sessionData.initialTabSwitchCount}
+      />
+    );
+  }
+
+  if (!examData) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -392,11 +457,15 @@ export const ExamPage: React.FC = () => {
   }
 
   return (
-    <ExamRunner
-      exam={data.exam}
-      questions={data.questions}
-      sessionId={data.sessionId}
-      remainingSeconds={data.remaining}
+    <PreExamNotice
+      exam={examData.exam}
+      hasWrittenAnswers={examData.questions.some(
+        (question) => question.question_type === "short_answer" || question.question_type === "essay"
+      )}
+      starting={starting}
+      error={startError}
+      onAccept={(consent) => void beginExam(consent)}
+      onCancel={() => navigate("/student/dashboard")}
     />
   );
 };

@@ -13,7 +13,8 @@ def _build_published_exam(client, admin):
         {"exam_id": exam_id, "question_text": "What is 2 + 2?", "question_type": "mcq",
          "options": ["3", "4"], "correct_answer": "4", "marks": 2},
         {"exam_id": exam_id, "question_text": "Capital of France?", "question_type": "mcq",
-         "options": ["Paris", "Rome"], "correct_answer": "Paris", "marks": 3},
+         "options": ["Paris", "Rome"], "correct_answer": "Paris", "marks": 3,
+         "rubric": "Award full marks for Paris."},
     ]
     for q in questions:
         assert client.post("/api/admin/questions", headers=admin, json=q).status_code == 200
@@ -28,9 +29,19 @@ def test_full_exam_flow(client, make_user):
     student = make_user("stu@test.dev", "Student One")
     exam_id = _build_published_exam(client, admin)
 
+    missing_consent = client.post(f"/api/student/exams/{exam_id}/start", headers=student)
+    assert missing_consent.status_code == 422
+    rejected_consent = client.post(
+        f"/api/student/exams/{exam_id}/start",
+        headers=student,
+        json={"consent": False},
+    )
+    assert rejected_consent.status_code == 400
+
     # total marks are recalculated from the questions
     detail = client.get(f"/api/admin/exams/{exam_id}", headers=admin).json()
     assert detail["exam"]["total_marks"] == 5
+    assert detail["questions"][1]["rubric"] == "Award full marks for Paris."
 
     # student sees the exam, but never the answers
     exams = client.get("/api/student/exams", headers=student).json()["exams"]
@@ -40,13 +51,36 @@ def test_full_exam_flow(client, make_user):
     assert all("correct_answer" not in q for q in exam_view["questions"])
 
     # starting twice resumes the same session
-    s1 = client.post(f"/api/student/exams/{exam_id}/start", headers=student).json()
-    s2 = client.post(f"/api/student/exams/{exam_id}/start", headers=student).json()
+    s1 = client.post(
+        f"/api/student/exams/{exam_id}/start",
+        headers=student,
+        json={"consent": True},
+    ).json()
+    s2 = client.post(
+        f"/api/student/exams/{exam_id}/start",
+        headers=student,
+        json={"consent": True},
+    ).json()
     assert s1["session_id"] == s2["session_id"]
     session_id = s1["session_id"]
 
     # answer one right, one wrong
     by_text = {q["question_text"]: q["_id"] for q in exam_view["questions"]}
+    draft = client.put(
+        f"/api/student/sessions/{session_id}/answers",
+        headers=student,
+        json={"answers": [
+            {"question_id": by_text["What is 2 + 2?"], "selected_answer": "4"},
+        ]},
+    )
+    assert draft.status_code == 200
+    resumed = client.post(
+        f"/api/student/exams/{exam_id}/start",
+        headers=student,
+        json={"consent": True},
+    ).json()
+    assert resumed["draft_answers"] == {by_text["What is 2 + 2?"]: "4"}
+
     submit = client.post(
         "/api/student/sessions/submit", headers=student,
         json={"session_id": session_id, "answers": [
@@ -74,7 +108,11 @@ def test_full_exam_flow(client, make_user):
     assert (stats["attempted"], stats["passed"], stats["failed"]) == (1, 0, 1)
 
     # a finished exam cannot be restarted
-    restart = client.post(f"/api/student/exams/{exam_id}/start", headers=student)
+    restart = client.post(
+        f"/api/student/exams/{exam_id}/start",
+        headers=student,
+        json={"consent": True},
+    )
     assert restart.status_code == 400
 
 
@@ -82,7 +120,11 @@ def test_unanswered_questions_score_zero(client, make_user):
     admin = make_user("admin@test.dev")
     student = make_user("stu@test.dev")
     exam_id = _build_published_exam(client, admin)
-    session_id = client.post(f"/api/student/exams/{exam_id}/start", headers=student).json()["session_id"]
+    session_id = client.post(
+        f"/api/student/exams/{exam_id}/start",
+        headers=student,
+        json={"consent": True},
+    ).json()["session_id"]
     r = client.post("/api/student/sessions/submit", headers=student,
                     json={"session_id": session_id, "answers": []})
     assert r.json()["result"]["score"] == 0

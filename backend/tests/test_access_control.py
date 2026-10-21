@@ -22,13 +22,14 @@ def test_client_cannot_self_register_as_admin(client):
     assert login.json()["user"]["role"] == "student"
 
 
-def test_allowlisted_email_becomes_admin(client):
-    client.post("/api/auth/register", json={
+def test_allowlisted_email_still_registers_as_student(client):
+    registered = client.post("/api/auth/register", json={
         "name": "Admin One", "email": "admin@test.dev",
         "password": "secret123", "confirm_password": "secret123",
     })
     login = client.post("/api/auth/login", json={"email": "admin@test.dev", "password": "secret123"})
-    assert login.json()["user"]["role"] == "admin"
+    assert registered.json()["user"]["role"] == "student"
+    assert login.json()["user"]["role"] == "student"
 
 
 def test_admin_cannot_touch_another_admins_exam(client, make_user):

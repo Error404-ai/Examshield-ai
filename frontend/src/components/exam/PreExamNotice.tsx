@@ -22,7 +22,7 @@ interface PreExamNoticeProps {
   hasWrittenAnswers?: boolean;
   starting: boolean;
   error?: string;
-  onAccept: () => void;
+  onAccept: (consent: boolean) => void;
   onCancel: () => void;
 }
 
@@ -144,7 +144,7 @@ export const PreExamNotice: React.FC<PreExamNoticeProps> = ({
           </button>
           <button
             type="button"
-            onClick={onAccept}
+            onClick={() => onAccept(agreed)}
             disabled={!agreed || starting}
             className="px-5 py-2 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >

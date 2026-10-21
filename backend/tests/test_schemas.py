@@ -34,5 +34,7 @@ def test_valid_question_passes():
     q = QuestionCreate(
         exam_id="e1", question_text="What is 2 + 2?", question_type="mcq",
         options=["3", "4"], correct_answer="4", marks=2,
+        rubric="Explain the reasoning.",
     )
     assert q.marks == 2
+    assert q.rubric == "Explain the reasoning."

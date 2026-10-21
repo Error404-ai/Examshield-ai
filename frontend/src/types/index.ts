@@ -104,6 +104,7 @@ export interface Question {
   options?: string[];
   marks: number;
   correct_answer?: string;
+  rubric?: string;
   created_at?: string;
 }
 
@@ -114,6 +115,7 @@ export interface QuestionCreate {
   options?: string[];
   correct_answer: string;
   marks: number;
+  rubric?: string;
 }
 
 // ============ Session ============

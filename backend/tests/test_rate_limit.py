@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.core.rate_limit import RateLimitMiddleware
 from app.core.security import SecurityUtils
+from app.main import app
 
 
 def make_client(rules, default=(1000, 60)):
@@ -28,6 +29,10 @@ def make_client(rules, default=(1000, 60)):
 
 def bearer(user_id):
     return {"Authorization": f"Bearer {SecurityUtils.create_access_token({'sub': user_id})}"}
+
+
+def test_application_registers_rate_limit_middleware():
+    assert any(middleware.cls is RateLimitMiddleware for middleware in app.user_middleware)
 
 
 def test_blocks_after_limit_with_retry_after():

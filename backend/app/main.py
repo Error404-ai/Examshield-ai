@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 from app.routes import auth, student, admin, proctoring, integrity
 from app.core.config import settings
 from app.core.database import connect_db, close_db
+from app.core.rate_limit import RateLimitMiddleware
 
 
 @asynccontextmanager
@@ -43,6 +44,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Apply request limits to authentication and other API traffic.
+app.add_middleware(RateLimitMiddleware, enabled=settings.RATE_LIMIT_ENABLED)
 
 # CORS Middleware (uses the merged list: defaults + FRONTEND_URL + EXTRA_CORS_ORIGINS)
 app.add_middleware(
