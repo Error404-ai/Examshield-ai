@@ -3,6 +3,10 @@ ExamShield AI - Proctoring Routes
 Browser-side AI (MediaPipe) detects violations and reports short events here.
 Events are stored on the session document (sessions.proctoring_alerts).
 Admins review them per exam / per session.
+
+Scoring (severity weights, thresholds, recommendation) lives in
+services/integrity_logic.py, the single backend copy. The frontend mirror is
+frontend/src/services/policy.ts.
 """
 
 import logging
@@ -17,7 +21,13 @@ from app.core.database import get_db
 from app.core.security import get_current_user, require_role
 from app.core.utils import oid
 from app.models.schemas import AlertSeverity, SessionStatus
-from app.services.integrity_logic import derive_status, public_integrity
+from app.services.integrity_logic import (
+    derive_status,
+    iso,
+    public_integrity,
+    recommendation,
+    suspicion,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,7 +36,7 @@ admin_only = require_role("admin")
 
 ONGOING = SessionStatus.ONGOING.value
 MAX_ALERTS_PER_SESSION = 500
-# Keep equal to MAX_TAB_SWITCHES in frontend/src/pages/Exam/ExamPage.tsx.
+# Keep equal to MAX_TAB_SWITCHES in frontend/src/services/policy.ts.
 # The server only flags the session; the browser performs the auto-submit.
 MAX_TAB_SWITCHES = 3
 
@@ -41,34 +51,12 @@ EventType = Literal[
     "phone_detected",
 ]
 
-# Weights used for the suspicion score shown to admins
-SEVERITY_WEIGHT = {"low": 1, "medium": 3, "high": 8, "critical": 15}
-
 
 class ProctoringEventIn(BaseModel):
     session_id: str
     alert_type: EventType
     severity: AlertSeverity
     description: str = Field("", max_length=300)
-
-
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-
-def _iso(value):
-    """Naive-UTC datetime -> ISO string with Z (None if missing)"""
-    return value.isoformat() + "Z" if isinstance(value, datetime) else None
-
-
-def _suspicion(alerts: list) -> int:
-    return min(100, sum(SEVERITY_WEIGHT.get(a.get("severity"), 0) for a in alerts))
-
-
-def _recommendation(score: int) -> str:
-    if score < 20:
-        return "approve"
-    if score < 50:
-        return "review"
-    return "reject"
 
 
 # ─── Student: report an event ────────────────────────────────────────────────
@@ -141,7 +129,7 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
     rows = []
     for s in sessions:
         alerts = s.get("proctoring_alerts", [])
-        score = _suspicion(alerts)
+        score = suspicion(alerts)
         student = users.get(s["student_id"], {})
         rows.append({
             "session_id": str(s["_id"]),
@@ -153,13 +141,13 @@ async def exam_sessions(exam_id: str, admin=Depends(admin_only), db=Depends(get_
             "total_marks": s.get("total_marks"),
             "percentage": s.get("percentage"),
             "passed": s.get("passed"),
-            "started_at": _iso(s.get("started_at")),
-            "submitted_at": _iso(s.get("submitted_at")),
+            "started_at": iso(s.get("started_at")),
+            "submitted_at": iso(s.get("submitted_at")),
             "total_alerts": len(alerts),
             "counts": s.get("proctoring_counts", {}),
             "tab_limit_reached": bool(s.get("tab_limit_reached")),
             "suspicion_score": score,
-            "recommendation": _recommendation(score),
+            "recommendation": recommendation(score),
         })
 
     # Most suspicious first
@@ -232,7 +220,7 @@ async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(
 
     student = await db.users.find_one({"_id": oid(session["student_id"])}, {"name": 1, "email": 1})
     alerts = session.get("proctoring_alerts", [])
-    score = _suspicion(alerts)
+    score = suspicion(alerts)
     integrity = session.get("integrity") or {}
 
     return {
@@ -245,7 +233,7 @@ async def session_alerts(session_id: str, admin=Depends(admin_only), db=Depends(
         "counts": session.get("proctoring_counts", {}),
         "tab_limit_reached": bool(session.get("tab_limit_reached")),
         "suspicion_score": score,
-        "recommendation": _recommendation(score),
+        "recommendation": recommendation(score),
         "alerts": alerts,
         "integrity_status": None if session.get("status") == ONGOING else derive_status(session),
         "integrity": public_integrity(integrity, admin=True),

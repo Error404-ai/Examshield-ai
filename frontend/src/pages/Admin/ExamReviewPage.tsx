@@ -2,6 +2,7 @@
  * Exam Review Page (admin)
  * Two tabs: proctoring review of sessions, and exam analytics.
  * Sessions auto-refresh so an exam can be watched live.
+ * Reached from the "Proctoring and analytics" button on the results page.
  */
 
 import { PageHeader } from "../../components/common/PageHeader";
@@ -13,6 +14,7 @@ import {
   SessionAlertsDetail,
   Recommendation,
 } from "../../services/proctoringService";
+import { ALERT_TYPE_LABEL } from "../../services/integrityService";
 import { ExamAnalyticsPanel } from "../../components/admin/ExamAnalyticsPanel";
 import { StatStrip } from "../../components/common/Statstrip";
 import { Alert } from "../../components/common/Badge";
@@ -26,17 +28,6 @@ import {
 } from "../../utils";
 
 const REFRESH_MS = 15000;
-
-const typeLabel: Record<string, string> = {
-  tab_switch: "Tab switches",
-  fullscreen_exit: "Fullscreen exits",
-  face_not_detected: "No face",
-  multiple_faces: "Multiple faces",
-  looking_away: "Looking away",
-  eyes_closed: "Eyes closed",
-  camera_blocked: "Camera blocked",
-  phone_detected: "Phone detected",
-};
 
 const recLabel: Record<Recommendation, string> = {
   approve: "Clear",
@@ -149,13 +140,22 @@ export const ExamReviewPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-[1500px] px-6 lg:px-12 py-10">
-      <button
-        type="button"
-        onClick={() => navigate("/admin/dashboard")}
-        className="mb-3 text-sm font-medium text-indigo-700 hover:text-indigo-900"
-      >
-        ← Back to dashboard
-      </button>
+      <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1">
+        <button
+          type="button"
+          onClick={() => navigate(`/admin/exams/${examId}/results`)}
+          className="text-sm font-medium text-indigo-700 hover:text-indigo-900"
+        >
+          ← Back to results
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate("/admin/dashboard")}
+          className="text-sm font-medium text-gray-500 hover:text-gray-900"
+        >
+          Dashboard
+        </button>
+      </div>
       <PageHeader
         className="mb-8"
         eyebrow="Exam review"
@@ -329,7 +329,7 @@ export const ExamReviewPage: React.FC = () => {
                           key={type}
                           className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-700"
                         >
-                          {typeLabel[type] ?? type}: <strong>{n}</strong>
+                          {ALERT_TYPE_LABEL[type] ?? type}: <strong>{n}</strong>
                         </span>
                       ))}
                     </div>
@@ -350,7 +350,7 @@ export const ExamReviewPage: React.FC = () => {
                           <span className="shrink-0 text-xs tabular-nums opacity-70">
                             {new Date(a.timestamp).toLocaleTimeString("en-IN")}
                           </span>
-                          <span className="shrink-0 font-medium">{typeLabel[a.alert_type] ?? a.alert_type}</span>
+                          <span className="shrink-0 font-medium">{ALERT_TYPE_LABEL[a.alert_type] ?? a.alert_type}</span>
                           <span className="opacity-80">{a.description}</span>
                           <span className="ml-auto text-xs uppercase opacity-70">{a.severity}</span>
                         </div>

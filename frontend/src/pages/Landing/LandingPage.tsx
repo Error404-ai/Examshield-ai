@@ -2,6 +2,10 @@
  * Landing Page (logged-out visitors at "/")
  * One orchestrated moment: the live detection demo in the hero.
  * Everything else is static and quiet.
+ *
+ * The table of flagged signals, their points and the approve/review/reject
+ * thresholds all come from services/policy.ts, so this page can't drift from
+ * what the detection hook and the pre-exam notice say.
  */
 
 import React, { useEffect } from "react";
@@ -9,27 +13,26 @@ import { Link } from "react-router-dom";
 import { motion, MotionConfig, useReducedMotion } from "framer-motion";
 import Lenis from "lenis";
 import { ScanCanvas } from "../../components/landing/ScanCanvas";
+import { SEVERITY_POINTS, SIGNALS, THRESHOLDS } from "../../services/policy";
+import { AlertSeverity } from "../../types";
 
-// Values mirror backend/app/routes/proctoring.py (SEVERITY_WEIGHT) and
-// frontend/src/hooks/useProctoring.ts (RULES, PHONE_*). Update all together.
-// Face checks run every 500ms, so "about N seconds" = samples x 0.5s.
-const SIGNALS = [
-  { name: "More than one person", when: "A second face stays in view for about two seconds", severity: "Critical", weight: 15 },
-  { name: "Camera turned off", when: "The video stream ends mid-exam", severity: "High", weight: 8 },
-  { name: "No face in view", when: "Nobody is visible for about three seconds", severity: "High", weight: 8 },
-  { name: "Phone in view", when: "A phone is seen in two checks in a row", severity: "High", weight: 8 },
-  { name: "Left the exam tab", when: "The student switches tab or window. The third switch ends the exam", severity: "Medium", weight: 3 },
-  { name: "Left fullscreen", when: "The student exits fullscreen mode", severity: "Medium", weight: 3 },
-  { name: "Looking away", when: "The head or eyes stay turned from the screen for about three seconds", severity: "Medium", weight: 3 },
-  { name: "Eyes closed", when: "Eyes stay closed for about four seconds", severity: "Low", weight: 1 },
-];
-
-const severityColor: Record<string, string> = {
-  Critical: "text-rose",
-  High: "text-amber",
-  Medium: "text-cyan-400",
-  Low: "text-slate-400",
+const SEVERITY_LABEL: Record<AlertSeverity, string> = {
+  [AlertSeverity.CRITICAL]: "Critical",
+  [AlertSeverity.HIGH]: "High",
+  [AlertSeverity.MEDIUM]: "Medium",
+  [AlertSeverity.LOW]: "Low",
 };
+
+const severityColor: Record<AlertSeverity, string> = {
+  [AlertSeverity.CRITICAL]: "text-rose",
+  [AlertSeverity.HIGH]: "text-amber",
+  [AlertSeverity.MEDIUM]: "text-cyan-400",
+  [AlertSeverity.LOW]: "text-slate-400",
+};
+
+// Written out so the heading reads naturally. Falls back to the digit if the policy grows.
+const NUMBER_WORDS = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+const countWord = (n: number) => NUMBER_WORDS[n] ?? String(n);
 
 const STEPS = [
   {
@@ -127,12 +130,13 @@ export const LandingPage: React.FC = () => {
         <section className="border-t border-white/10">
           <div className="mx-auto max-w-[1500px] px-6 lg:px-12 py-24">
             <h2 className="max-w-xl font-display text-3xl font-medium tracking-tight text-white sm:text-4xl">
-              Eight things get flagged, each with a fixed weight
+              {countWord(SIGNALS.length)} things get flagged, each with a fixed weight
             </h2>
             <p className="mt-4 max-w-xl text-slate-300">
               Each flag adds its points to the session&rsquo;s suspicion score, capped at 100. Repeats of the same flag
-              are rate-limited, so one long glance doesn&rsquo;t count fifty times. Below 20 is approve, 20 to 49 is
-              review, 50 and above is reject.
+              are rate-limited, so one long glance doesn&rsquo;t count fifty times. Below {THRESHOLDS.review} is
+              approve, {THRESHOLDS.review} to {THRESHOLDS.reject - 1} is review, {THRESHOLDS.reject} and above is
+              reject.
             </p>
 
             <div className="mt-12 overflow-x-auto">
@@ -147,11 +151,11 @@ export const LandingPage: React.FC = () => {
                 </thead>
                 <tbody>
                   {SIGNALS.map((s) => (
-                    <tr key={s.name} className="border-b border-white/10">
-                      <td className="py-4 pr-6 font-medium text-white">{s.name}</td>
+                    <tr key={s.type} className="border-b border-white/10">
+                      <td className="py-4 pr-6 font-medium text-white">{s.label}</td>
                       <td className="max-w-sm py-4 pr-6 text-slate-400">{s.when}</td>
-                      <td className={`py-4 pr-6 ${severityColor[s.severity]}`}>{s.severity}</td>
-                      <td className="py-4 text-right tabular-nums text-slate-200">{s.weight}</td>
+                      <td className={`py-4 pr-6 ${severityColor[s.severity]}`}>{SEVERITY_LABEL[s.severity]}</td>
+                      <td className="py-4 text-right tabular-nums text-slate-200">{SEVERITY_POINTS[s.severity]}</td>
                     </tr>
                   ))}
                 </tbody>
