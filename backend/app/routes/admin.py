@@ -28,6 +28,7 @@ admin_only = require_role("admin")
 
 # Shared MongoDB counter limits AI generations across backend instances.
 GEN_LIMIT_PER_HOUR = 20
+SEVERITY_KEYS = ("critical", "high", "medium", "low")
 
 
 class ExamIn(BaseModel):
@@ -154,7 +155,67 @@ async def dashboard(admin=Depends(admin_only), db=Depends(get_db)):
         },
     }
 
+EVERITY_KEYS = ("critical", "high", "medium", "low")
 
+
+@router.get("/dashboard/overview")
+async def dashboard_overview(admin=Depends(admin_only), db=Depends(get_db)):
+    """
+    Everything the dashboard needs beyond /dashboard, in one request:
+    per-exam attempts / passed / average score, alert counts by severity, latest alerts.
+    """
+    exam_ids = [
+        str(e["_id"]) async for e in db.exams.find({"created_by": admin["user_id"]}, {"_id": 1})
+    ]
+    exams = {i: {"attempts": 0, "passed": 0, "avg": 0} for i in exam_ids}
+    severity = {k: 0 for k in SEVERITY_KEYS}
+    if not exam_ids:
+        return {"success": True, "exams": exams, "severity": severity, "recent_alerts": []}
+
+    done = [SessionStatus.SUBMITTED.value, SessionStatus.EXPIRED.value]
+    per_exam = await db.sessions.aggregate([
+        {"$match": {"exam_id": {"$in": exam_ids}, "status": {"$in": done}}},
+        {"$group": {
+            "_id": "$exam_id",
+            "attempts": {"$sum": 1},
+            "passed": {"$sum": {"$cond": [{"$eq": ["$passed", True]}, 1, 0]}},
+            "avg": {"$avg": "$percentage"},
+        }},
+    ]).to_list(None)
+    for row in per_exam:
+        exams[row["_id"]] = {
+            "attempts": row["attempts"],
+            "passed": row["passed"],
+            "avg": round(row["avg"] or 0, 2),
+        }
+
+    flagged = {"exam_id": {"$in": exam_ids}, "proctoring_alerts.0": {"$exists": True}}
+
+    by_severity = await db.sessions.aggregate([
+        {"$match": flagged},
+        {"$unwind": "$proctoring_alerts"},
+        {"$group": {"_id": "$proctoring_alerts.severity", "n": {"$sum": 1}}},
+    ]).to_list(None)
+    for row in by_severity:
+        if row["_id"] in severity:
+            severity[row["_id"]] = row["n"]
+
+    recent = await db.sessions.aggregate([
+        {"$match": flagged},
+        {"$unwind": "$proctoring_alerts"},
+        {"$sort": {"proctoring_alerts.timestamp": -1}},
+        {"$limit": 6},
+        {"$project": {
+            "_id": 0,
+            "session_id": {"$toString": "$_id"},
+            "alert_type": "$proctoring_alerts.alert_type",
+            "severity": "$proctoring_alerts.severity",
+            "description": "$proctoring_alerts.description",
+            "timestamp": "$proctoring_alerts.timestamp",
+        }},
+    ]).to_list(6)
+
+    return {"success": True, "exams": exams, "severity": severity, "recent_alerts": recent}
 # ─── Exams ───────────────────────────────────────────────────────────────────
 
 @router.post("/exams/full")

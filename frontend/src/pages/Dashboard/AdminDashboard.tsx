@@ -2,12 +2,14 @@
  * Admin Dashboard
  * Hero with live integrity snapshot, KPI strip, exam table with per-exam
  * attempts and average score, and a side column explaining how exams are protected.
+ *
+ * Data: three requests in total (stats, exam list, and one overview call that
+ * carries per-exam attempts/scores, alert counts by severity and the latest alerts).
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { adminService } from "../../services/examService";
-import { proctoringService } from "../../services/proctoringService";
 import { AdminStats, BehaviorAlert, Exam } from "../../types";
 import { getErrorMessage } from "../../utils";
 import {
@@ -39,6 +41,10 @@ const SEVERITIES = [
   { key: "low", label: "Low", bar: "bg-sky-500", dot: "bg-sky-500" },
 ] as const;
 
+type SeverityCounts = Record<(typeof SEVERITIES)[number]["key"], number>;
+
+const NO_ALERTS: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+
 const protections = [
   { icon: "camera", title: "Webcam monitoring", text: "Faces and gaze are checked in the student's browser. No video is uploaded." },
   { icon: "expand", title: "Focus tracking", text: "Tab switches and leaving the exam window are logged with timestamps." },
@@ -52,68 +58,18 @@ export const AdminDashboard: React.FC = () => {
   const [exams, setExams] = useState<Exam[]>([]);
   const [perExam, setPerExam] = useState<Record<string, ExamStat>>({});
   const [alerts, setAlerts] = useState<BehaviorAlert[]>([]);
+  const [severityCounts, setSeverityCounts] = useState<SeverityCounts>(NO_ALERTS);
   const [alertsState, setAlertsState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const loadExtras = useCallback(async (list: Exam[]) => {
-    const published = list.filter((e) => e.is_published).slice(0, 12);
-    const settled = await Promise.allSettled(published.map((e) => adminService.getExamResults(e._id)));
-    const map: Record<string, ExamStat> = {};
-    settled.forEach((r, i) => {
-      if (r.status === "fulfilled") {
-        map[published[i]._id] = {
-          attempts: r.value.total_attempts,
-          passed: r.value.passed,
-          avg: r.value.average_score,
-        };
-      }
-    });
-    setPerExam(map);
-
+  // One call: per-exam stats, alert counts by severity and the latest alerts
+  const loadExtras = useCallback(async () => {
     try {
-      const sessionResults = await Promise.allSettled(
-        published.map((exam) => proctoringService.getExamSessions(exam._id))
-      );
-      const sessionIds: string[] = [];
-      sessionResults.forEach((result) => {
-        if (result.status !== "fulfilled") return;
-        const response = result.value as unknown;
-        const sessions = Array.isArray(response)
-          ? response
-          : response && typeof response === "object" && "sessions" in response && Array.isArray(response.sessions)
-            ? response.sessions
-            : [];
-        sessions.forEach((value: unknown) => {
-          if (!value || typeof value !== "object") return;
-          const session = value as Record<string, unknown>;
-          const id = session.session_id ?? session._id ?? session.id;
-          if (typeof id === "string" && id) sessionIds.push(id);
-        });
-      });
-
-      const alertResults = await Promise.allSettled(
-        sessionIds.map((sessionId) => proctoringService.getSessionAlerts(sessionId))
-      );
-      const collected: BehaviorAlert[] = [];
-      alertResults.forEach((result) => {
-        if (result.status !== "fulfilled") return;
-        const response = result.value as unknown;
-        const items = Array.isArray(response)
-          ? response
-          : response && typeof response === "object" && "alerts" in response && Array.isArray(response.alerts)
-            ? response.alerts
-            : [];
-        collected.push(...(items as BehaviorAlert[]));
-      });
-      if (sessionIds.length > 0 && alertResults.every((result) => result.status === "rejected")) {
-        setAlertsState("unavailable");
-        return;
-      }
-      const sorted = collected.sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
-      setAlerts(sorted);
+      const overview = await adminService.getDashboardOverview();
+      setPerExam(overview.exams);
+      setSeverityCounts({ ...NO_ALERTS, ...overview.severity });
+      setAlerts(overview.recent_alerts);
       setAlertsState("ready");
     } catch {
       setAlertsState("unavailable");
@@ -127,7 +83,7 @@ export const AdminDashboard: React.FC = () => {
       const [s, e] = await Promise.all([adminService.getDashboard(), adminService.getExams()]);
       setStats(s);
       setExams(e);
-      void loadExtras(e);
+      void loadExtras();
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -165,14 +121,7 @@ export const AdminDashboard: React.FC = () => {
     };
   }, [perExam]);
 
-  const severityCounts = useMemo(() => {
-    const counts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
-    alerts.forEach((a) => {
-      const key = String(a.severity);
-      if (key in counts) counts[key] += 1;
-    });
-    return counts;
-  }, [alerts]);
+  const totalAlerts = Object.values(severityCounts).reduce((sum, n) => sum + n, 0);
   const maxSeverity = Math.max(1, ...Object.values(severityCounts));
 
   if (loading) return <PageLoader label="Loading your dashboard..." />;
@@ -239,13 +188,13 @@ export const AdminDashboard: React.FC = () => {
               {alertsState === "unavailable" && (
                 <p className="mt-8 text-sm text-slate-400">Alert data isn't available right now.</p>
               )}
-              {alertsState === "ready" && alerts.length === 0 && (
+              {alertsState === "ready" && totalAlerts === 0 && (
                 <div className="mt-8 flex items-center gap-3 text-emerald-300">
                   <Icon name="check" className="h-6 w-6" />
                   <p className="text-sm">All clear. No flagged activity yet.</p>
                 </div>
               )}
-              {alertsState === "ready" && alerts.length > 0 && (
+              {alertsState === "ready" && totalAlerts > 0 && (
                 <ul className="mt-7 space-y-4">
                   {SEVERITIES.map((s) => (
                     <li key={s.key} className="grid grid-cols-[70px_1fr_32px] items-center gap-3 text-sm">

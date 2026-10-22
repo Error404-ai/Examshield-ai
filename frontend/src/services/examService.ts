@@ -17,6 +17,7 @@ import {
   ExamResult,
   AdminStats,
   StudentStats,
+  AlertSeverity,
 } from "../types";
 
 // ============ AI generation + analytics types ============
@@ -55,6 +56,20 @@ export interface ExamAnalytics {
     marks: number;
     correct_pct: number;
     skipped: number;
+  }[];
+}
+
+export type SeverityCounts = Record<"critical" | "high" | "medium" | "low", number>;
+
+export interface DashboardOverview {
+  exams: Record<string, { attempts: number; passed: number; avg: number }>;
+  severity: SeverityCounts;
+  recent_alerts: {
+    session_id: string;
+    alert_type: string;
+    severity: AlertSeverity;
+    description: string;
+    timestamp: string;
   }[];
 }
 
@@ -124,6 +139,11 @@ export const adminService = {
       { timeout: 90000 }
     );
     return data.questions;
+  },
+
+  async getDashboardOverview(): Promise<DashboardOverview> {
+    const { data } = await api.get<DashboardOverview & { success: boolean }>("/admin/dashboard/overview");
+    return data;
   },
 
   async getExamAnalytics(examId: string): Promise<ExamAnalytics> {
