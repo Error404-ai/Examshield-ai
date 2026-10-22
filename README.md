@@ -166,4 +166,4 @@ The backend tests cover access control, the full exam flow, student privacy (no 
 
 ## Author
 
-Tanisha Bhatt. Final-year B.Tech project. Source: https://github.com/Error404-ai/Examshield-ai
+Tanisha Bhatt. An Independent Final year Project B.Tech. Source: https://github.com/Error404-ai/Examshield-ai
