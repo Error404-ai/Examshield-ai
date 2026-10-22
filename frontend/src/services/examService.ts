@@ -1,6 +1,8 @@
 /**
  * Exam Service
- * Exam CRUD, questions, session management, AI generation, analytics
+ * Exam CRUD, questions, session management, AI generation, analytics.
+ *
+ * Appeals are not here: they belong to the integrity flow (services/integrityService.ts).
  */
 
 import api from "./api";
@@ -210,9 +212,5 @@ export const studentService = {
   async getResultDetail(sessionId: string): Promise<ExamResult> {
     const { data } = await api.get(`/student/results/${sessionId}`);
     return data.result;
-  },
-
-  async fileAppeal(sessionId: string, message: string): Promise<void> {
-    await api.post(`/student/results/${sessionId}/appeal`, { message });
   },
 };

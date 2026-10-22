@@ -1,7 +1,7 @@
 """Small helpers shared by route modules"""
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -24,16 +24,4 @@ def clean(doc: Dict[str, Any]) -> Dict[str, Any]:
             out[key] = str(value)
         elif isinstance(value, datetime):
             out[key] = value.isoformat() + "Z"  # stored as naive UTC
-    return out
-
-
-def appeal_out(appeal: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """JSON-safe appeal sub-document (clean() does not reach nested datetimes)"""
-    if not appeal:
-        return None
-    out = dict(appeal)
-    out.pop("resolved_by", None)  # internal admin id, not for the client
-    for key in ("created_at", "resolved_at"):
-        value = out.get(key)
-        out[key] = value.isoformat() + "Z" if isinstance(value, datetime) else None
     return out

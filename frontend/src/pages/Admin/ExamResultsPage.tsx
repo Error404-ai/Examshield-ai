@@ -1,6 +1,7 @@
 /**
  * Exam Results Page (admin)
- * Stats and per-student results for one exam
+ * Stats and per-student results for one exam.
+ * Links onward to the proctoring + analytics page (/admin/exams/:examId/review).
  */
 
 import React, { useEffect, useState } from "react";
@@ -74,9 +75,14 @@ export const ExamResultsPage: React.FC = () => {
         title={data.exam_title}
         subtitle="Student performance and proctoring activity for this exam."
         actions={
-          <Button variant="secondary" onClick={() => navigate("/admin/dashboard")}>
-            Back to dashboard
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => navigate(`/admin/exams/${examId}/review`)}>
+              Proctoring and analytics
+            </Button>
+            <Button variant="secondary" onClick={() => navigate("/admin/dashboard")}>
+              Back to dashboard
+            </Button>
+          </div>
         }
       />
 

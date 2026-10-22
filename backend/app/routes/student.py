@@ -12,8 +12,12 @@ until that finishes.
 Recovery: answers are autosaved to the session (draft_answers), so a refresh
 or a dropped connection does not lose work. The draft is deleted on submit.
 
-Privacy: students see the proctoring events recorded for their own attempt
-(so they can appeal), but never the suspicion score or recommendation.
+Privacy: nothing about proctoring or integrity review is returned from these
+routes. A student only hears about a flag through /api/integrity/my/{session_id},
+and only after an examiner has confirmed it. Pending and dismissed flags must
+look the same as no flag at all, so the raw events, the counts and the whole
+integrity sub-document are stripped from every session sent here.
+Appeals are handled by routes/integrity.py.
 """
 
 import logging
@@ -26,9 +30,8 @@ from pymongo.errors import DuplicateKeyError
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.core.utils import appeal_out, clean, oid
+from app.core.utils import clean, oid
 from app.models.schemas import (
-    AppealIn,
     DraftSave,
     SessionStatus,
     SessionSubmit,
@@ -52,7 +55,11 @@ _PRIVATE_FIELDS = (
     "draft_saved_at",
     "expires_at",
     "consented_at",
+    "proctoring_alerts",
     "proctoring_counts",
+    "tab_limit_reached",
+    "integrity",
+    "appeal",  # legacy field from the old appeal flow; appeals live under integrity now
     "review_needed",
     "grading_error",
 )
@@ -62,7 +69,7 @@ _PRIVATE_ANSWER_FIELDS = ("confidence", "needs_review", "reviewed_by")
 
 
 def _student_view(session: dict) -> dict:
-    """A session as the student may see it: no counts, no timers, events renamed"""
+    """A session as the student may see it: no proctoring data, no integrity data, no timers"""
     row = clean(session)
     for key in _PRIVATE_FIELDS:
         row.pop(key, None)
@@ -71,8 +78,6 @@ def _student_view(session: dict) -> dict:
             {k: v for k, v in a.items() if k not in _PRIVATE_ANSWER_FIELDS}
             for a in row["answers"]
         ]
-    row["integrity_events"] = row.pop("proctoring_alerts", [])
-    row["appeal"] = appeal_out(session.get("appeal"))
     return row
 
 
@@ -329,8 +334,7 @@ async def my_results(user=Depends(get_current_user), db=Depends(get_db)):
     results = []
     for s in sessions:
         row = _student_view(s)
-        row.pop("answers", None)
-        row.pop("integrity_events", None)  # list view stays light
+        row.pop("answers", None)  # list view stays light
         exam = await db.exams.find_one({"_id": oid(s["exam_id"])}, {"title": 1})
         row["exam_title"] = exam["title"] if exam else "Deleted exam"
         results.append(row)
@@ -348,28 +352,3 @@ async def result_detail(session_id: str, user=Depends(get_current_user), db=Depe
     result = _student_view(s)
     result["exam_title"] = exam["title"] if exam else "Deleted exam"
     return {"success": True, "result": result}
-
-
-@router.post("/results/{session_id}/appeal")
-async def file_appeal(
-    session_id: str, body: AppealIn, user=Depends(get_current_user), db=Depends(get_db)
-):
-    """One appeal per finished attempt, only by the student who took it."""
-    result = await db.sessions.update_one(
-        {
-            "_id": oid(session_id),
-            "student_id": user["user_id"],
-            "status": {"$in": DONE},
-            "appeal": {"$exists": False},
-        },
-        {"$set": {"appeal": {
-            "message": body.message.strip(),
-            "status": "pending",
-            "created_at": datetime.utcnow(),
-            "admin_note": "",
-            "resolved_at": None,
-        }}},
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=400, detail="Result not found, or it was already appealed")
-    return {"success": True}

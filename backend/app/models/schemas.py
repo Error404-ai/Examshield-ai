@@ -187,11 +187,6 @@ class DraftSave(BaseModel):
     answers: List[StudentAnswer]
 
 
-class AppealIn(BaseModel):
-    """A student's appeal against a finished attempt"""
-    message: str = Field(..., min_length=10, max_length=1000)
-
-
 class SessionResponse(BaseModel):
     """Session response schema"""
     id: str = Field(alias="_id")
