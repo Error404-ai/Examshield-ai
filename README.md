@@ -5,7 +5,7 @@ Proctored online exams where the camera is analysed **inside the student's brows
 **Live demo:** https://examshield-ai-chi.vercel.app
 **API docs:** https://examshield-ai-u4nt.onrender.com/docs (free tier, the first request can take about a minute to wake up)
 
-![Landing page with the live face-detection demo](docs/screenshots/01-landing.png)
+![Landing page with the live face-detection demo](docs/screenshots/01-landing.webp)
 
 ## What it does
 
@@ -20,10 +20,10 @@ Proctored online exams where the camera is analysed **inside the student's brows
 
 | | |
 |---|---|
-| ![Admin dashboard](docs/screenshots/02-admin-dashboard.png) **Admin dashboard.** Integrity snapshot, KPIs and per-exam results. | ![Integrity queue](docs/screenshots/03-integrity-queue.png) **Integrity queue.** Flagged sessions across all exams, open appeals first. |
-| ![Exams and alerts](docs/screenshots/04-admin-exams-and-alerts.png) **Exams and recent alerts.** | ![Create exam](docs/screenshots/05-create-exam-ai.png) **Create exam**, with the Gemini question generator. |
-| ![Student dashboard](docs/screenshots/06-student-dashboard.png) **Student dashboard.** Readiness check before an exam. | ![Student results](docs/screenshots/07-student-results.png) **Student results.** |
-| ![Exam results](docs/screenshots/08-exam-results.png) **Exam results.** Per-student scores and exam-specific proctoring alerts. | |
+| ![Admin dashboard](docs/screenshots/02-admin-dashboard.webp) **Admin dashboard.** Integrity snapshot, KPIs and per-exam results. | ![Integrity queue](docs/screenshots/03-integrity-queue.webp) **Integrity queue.** Flagged sessions across all exams, open appeals first. |
+| ![Exams and alerts](docs/screenshots/04-admin-exams-and-alerts.webp) **Exams and recent alerts.** | ![Create exam](docs/screenshots/05-create-exam-ai.webp) **Create exam**, with the Gemini question generator. |
+| ![Student dashboard](docs/screenshots/06-student-dashboard.webp) **Student dashboard.** Readiness check before an exam. | ![Student results](docs/screenshots/07-student-results.webp) **Student results.** |
+| ![Exam results](docs/screenshots/08-exam-results.webp) **Exam results.** Per-student scores and exam-specific proctoring alerts. | |
 
 ## How proctoring works
 
